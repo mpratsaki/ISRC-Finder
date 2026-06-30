@@ -4,47 +4,111 @@ app.py
 MMS Matrix - The Stay Independent Catalog Utility
 Streamlit web version (Playlist-to-Excel Generator)
 
-Uses Spotify's Client Credentials flow (app-only auth, no user login)
-so it only works with PUBLIC playlists, but anyone can use the hosted
-app with zero Spotify login.
+IMPORTANT (post Feb-2026 Spotify API changes):
+Spotify no longer returns playlist contents via Client Credentials, and even
+with a logged-in user, playlist items are only returned for playlists that
+user OWNS or COLLABORATES ON. So this app makes each visitor log in with
+their own Spotify account, and lets them pick from THEIR playlists only.
+
+Spotify also currently caps unverified ("Development Mode") apps to 5
+authorized Spotify accounts total - add testers in the app's dashboard under
+"User Management" if you need more than yourself using it.
 """
 
 import io
-import os
 import re
 import time
+import urllib.parse
 
 import openpyxl
 import requests
 import streamlit as st
 from openpyxl.styles import Alignment, Font
 
+SCOPE = "playlist-read-private playlist-read-collaborative"
+
 # --------------------------------------------------------------------------
-# Credentials
+# Credentials & config
 # --------------------------------------------------------------------------
-def get_credentials():
+def get_config():
     """
-    Reads credentials from Streamlit secrets first (used on Streamlit
-    Community Cloud), falling back to environment variables (used for
-    local testing with a .env file you DO NOT commit to git).
+    Reads config from Streamlit secrets (Settings -> Secrets on Streamlit
+    Community Cloud). Required keys:
+      SPOTIFY_CLIENT_ID
+      SPOTIFY_CLIENT_SECRET
+      REDIRECT_URI   -> must exactly match a Redirect URI registered in your
+                         Spotify Dashboard app, e.g. https://yourapp.streamlit.app
+                         (use http://localhost:8501 while testing locally)
     """
-    client_id = st.secrets.get("SPOTIFY_CLIENT_ID", os.getenv("SPOTIFY_CLIENT_ID"))
-    client_secret = st.secrets.get("SPOTIFY_CLIENT_SECRET", os.getenv("SPOTIFY_CLIENT_SECRET"))
-    return client_id, client_secret
+    try:
+        client_id = st.secrets["SPOTIFY_CLIENT_ID"]
+        client_secret = st.secrets["SPOTIFY_CLIENT_SECRET"]
+        redirect_uri = st.secrets["REDIRECT_URI"]
+    except KeyError as e:
+        st.error(f"Λείπει η ρύθμιση {e} από τα Streamlit secrets.")
+        st.stop()
+    return client_id, client_secret, redirect_uri
 
 
 # --------------------------------------------------------------------------
-# Spotify authentication (Client Credentials flow - app only, no user login)
+# Spotify authentication (Authorization Code flow - per-user login)
 # --------------------------------------------------------------------------
-@st.cache_resource(ttl=3500)  # Spotify tokens last ~3600s, refresh a bit early
-def get_access_token(client_id, client_secret):
+def build_authorize_url(client_id, redirect_uri):
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "scope": SCOPE,
+    }
+    return "https://accounts.spotify.com/authorize?" + urllib.parse.urlencode(params)
+
+
+def exchange_code_for_token(client_id, client_secret, redirect_uri, code):
     resp = requests.post(
         "https://accounts.spotify.com/api/token",
-        data={"grant_type": "client_credentials"},
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+        },
         auth=(client_id, client_secret),
     )
     resp.raise_for_status()
-    return resp.json()["access_token"]
+    data = resp.json()
+    data["expires_at"] = time.time() + data.get("expires_in", 3600)
+    return data
+
+
+def refresh_access_token(client_id, client_secret, refresh_token):
+    resp = requests.post(
+        "https://accounts.spotify.com/api/token",
+        data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+        auth=(client_id, client_secret),
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    data.setdefault("refresh_token", refresh_token)
+    data["expires_at"] = time.time() + data.get("expires_in", 3600)
+    return data
+
+
+def get_valid_token():
+    """Returns a valid access token from session_state, refreshing if needed."""
+    token_data = st.session_state.get("token_data")
+    if not token_data:
+        return None
+
+    if token_data["expires_at"] > time.time() + 30:
+        return token_data["access_token"]
+
+    client_id, client_secret, _ = get_config()
+    try:
+        token_data = refresh_access_token(client_id, client_secret, token_data["refresh_token"])
+        st.session_state["token_data"] = token_data
+        return token_data["access_token"]
+    except requests.HTTPError:
+        st.session_state.pop("token_data", None)
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -70,11 +134,27 @@ def _api_get(token, url, params=None, retries=3):
     resp.raise_for_status()
 
 
+def fetch_user_playlists(token):
+    """Returns the logged-in user's own + collaborative playlists."""
+    playlists = []
+    url = "https://api.spotify.com/v1/me/playlists"
+    params = {"limit": 50}
+
+    while url:
+        data = _api_get(token, url, params=params)
+        for item in data.get("items", []):
+            playlists.append({"id": item["id"], "name": item["name"]})
+        url = data.get("next")
+        params = None
+
+    return playlists
+
+
 def fetch_playlist_tracks(token, playlist_id):
     tracks = []
-    url = f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
+    url = f"https://api.spotify.com/v1/playlists/{playlist_id}/items"
     params = {
-        "fields": "items(track(id,name,artists(name),external_ids)),next",
+        "fields": "items(item(id,name,artists(name),external_ids)),next",
         "limit": 50,
         "offset": 0,
     }
@@ -83,10 +163,13 @@ def fetch_playlist_tracks(token, playlist_id):
         data = _api_get(token, url, params=params)
         items = data.get("items")
         if items is None:
-            raise RuntimeError("Το Spotify δεν επέστρεψε τραγούδια. Ελέγξτε το link.")
+            raise RuntimeError(
+                "Δεν επιστράφηκε περιεχόμενο playlist. Βεβαιωθείτε ότι η playlist "
+                "είναι δική σας ή collaborative."
+            )
 
         for entry in items:
-            track = entry.get("track")
+            track = entry.get("item")
             if not track:
                 continue
             isrc = (track.get("external_ids") or {}).get("isrc")
@@ -114,7 +197,7 @@ def validate_isrc(isrc):
 
 
 # --------------------------------------------------------------------------
-# Excel Generator (Zero-to-Excel) - now builds in-memory, not to disk
+# Excel Generator (Zero-to-Excel) - builds in-memory
 # --------------------------------------------------------------------------
 def generate_new_catalog(tracks):
     wb = openpyxl.Workbook()
@@ -170,37 +253,62 @@ def generate_new_catalog(tracks):
 # Streamlit UI
 # --------------------------------------------------------------------------
 st.set_page_config(page_title="Stay Independent Catalog Generator", page_icon="🎵")
-
 st.title("🎵 Stay Independent Catalog Generator")
-st.write("Επικολλήστε το link μιας **δημόσιας** Spotify playlist για να δημιουργηθεί το Excel κατάλογος.")
 
-client_id, client_secret = get_credentials()
-if not client_id or not client_secret:
-    st.error(
-        "Δεν βρέθηκαν τα διαπιστευτήρια Spotify. Αν τρέχετε τοπικά, ορίστε "
-        "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET στο περιβάλλον. Στο Streamlit "
-        "Cloud, προσθέστε τα στα app secrets (Settings → Secrets)."
-    )
+client_id, client_secret, redirect_uri = get_config()
+
+# Step 1: handle the redirect back from Spotify (?code=... in the URL)
+query_params = st.query_params
+if "error" in query_params:
+    st.error(f"Η σύνδεση με το Spotify απέτυχε: {query_params['error']}")
+    st.query_params.clear()
+elif "code" in query_params and "token_data" not in st.session_state:
+    try:
+        token_data = exchange_code_for_token(client_id, client_secret, redirect_uri, query_params["code"])
+        st.session_state["token_data"] = token_data
+    except requests.HTTPError as e:
+        st.error(f"Σφάλμα κατά την ανταλλαγή του code: {e}")
+    st.query_params.clear()
+    st.rerun()
+
+token = get_valid_token()
+
+# Step 2: not logged in -> show login link
+if not token:
+    auth_url = build_authorize_url(client_id, redirect_uri)
+    st.write("Συνδεθείτε με το Spotify σας για να δείτε τις playlists σας (δικές σας ή collaborative).")
+    st.link_button("🔑 Σύνδεση με Spotify", auth_url, type="primary")
     st.stop()
 
-playlist_input = st.text_input("Spotify Playlist link ή ID", placeholder="https://open.spotify.com/playlist/...")
+# Step 3: logged in -> show their playlists
+col1, col2 = st.columns([3, 1])
+with col2:
+    if st.button("Αποσύνδεση"):
+        st.session_state.pop("token_data", None)
+        st.rerun()
+
+try:
+    with st.spinner("Φόρτωση των playlists σας..."):
+        playlists = fetch_user_playlists(token)
+except requests.HTTPError as e:
+    st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
+    st.stop()
+
+if not playlists:
+    st.warning("Δεν βρέθηκαν playlists στο λογαριασμό σας.")
+    st.stop()
+
+playlist_names = [p["name"] for p in playlists]
+selected_name = st.selectbox("Επιλέξτε playlist", playlist_names)
+selected_playlist = next(p for p in playlists if p["name"] == selected_name)
 
 if st.button("Δημιουργία Excel ✔️", type="primary"):
-    if not playlist_input.strip():
-        st.warning("Παρακαλώ δώστε ένα link ή ID playlist.")
-        st.stop()
-
-    playlist_id = extract_playlist_id(playlist_input)
-
     try:
-        with st.spinner("Σύνδεση με το Spotify API..."):
-            token = get_access_token(client_id, client_secret)
-
         with st.spinner("Ανάκτηση τραγουδιών..."):
-            tracks = fetch_playlist_tracks(token, playlist_id)
+            tracks = fetch_playlist_tracks(token, selected_playlist["id"])
 
         if not tracks:
-            st.warning("Δεν βρέθηκαν τραγούδια. Ελέγξτε ότι η playlist είναι δημόσια.")
+            st.warning("Δεν βρέθηκαν τραγούδια σε αυτή την playlist.")
             st.stop()
 
         st.success(f"Βρέθηκαν {len(tracks)} τραγούδια!")
@@ -213,7 +321,7 @@ if st.button("Δημιουργία Excel ✔️", type="primary"):
             for title, isrc in report["health_warnings"]:
                 st.write(f"- **{title}**: Άκυρο ISRC ({isrc})")
 
-        output_filename = f"Release_{playlist_id[:8]}.xlsx"
+        output_filename = f"Release_{selected_playlist['id'][:8]}.xlsx"
         st.download_button(
             label="⬇️ Λήψη Excel",
             data=buffer,
