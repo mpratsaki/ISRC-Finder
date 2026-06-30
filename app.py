@@ -19,6 +19,10 @@ except Exception:
     st.error("Σφάλμα: Τα διαπιστευτήρια SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET δεν βρέθηκαν στα Secrets του Streamlit.")
     st.stop()
 
+# --- ΑΣΦΑΛΗΣ ΚΑΤΑΣΚΕΥΗ URL (Για αποφυγή αλλοίωσης) ---
+S_NAME = "spotify"
+S_TLD = "com"
+
 # --------------------------------------------------------------------------
 # Spotify API Functions
 # --------------------------------------------------------------------------
@@ -27,8 +31,8 @@ def get_app_token(client_id, client_secret):
     auth_string = f"{client_id}:{client_secret}"
     auth_base64 = base64.b64encode(auth_string.encode("utf-8")).decode("utf-8")
     
-    # Τα πραγματικά Links "σπασμένα" για να μην αλλοιώνονται
-    url = "https://" + "accounts.spotify.com" + "/api/token"
+    # Το πραγματικό Token URL χτίζεται δυναμικά:
+    url = f"https://accounts.{S_NAME}.{S_TLD}/api/token"
     
     headers = {
         "Authorization": "Basic " + auth_base64,
@@ -48,8 +52,8 @@ def extract_playlist_id(playlist_arg):
 def fetch_playlist_tracks(token, playlist_id):
     tracks = []
     
-    # Το πραγματικό API Link του Spotify
-    url = "https://" + "api.spotify.com" + "/v1/playlists/" + playlist_id + "/tracks"
+    # Το πραγματικό API URL χτίζεται δυναμικά:
+    url = f"https://api.{S_NAME}.{S_TLD}/v1/playlists/{playlist_id}/tracks"
     
     headers = {"Authorization": f"Bearer {token}"}
     params = {"fields": "items(track(id,name,artists(name),external_ids)),next", "limit": 50, "offset": 0}
