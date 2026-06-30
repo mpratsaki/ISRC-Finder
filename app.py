@@ -32,7 +32,7 @@ def get_app_token(client_id, client_secret):
     auth_base64 = base64.b64encode(auth_string.encode("utf-8")).decode("utf-8")
     
     # Το πραγματικό Token URL χτίζεται δυναμικά:
-    url = f"https://accounts.{S_NAME}.{S_TLD}/api/token"
+    url = "https://accounts.spotify.com/api/token"
     
     headers = {
         "Authorization": "Basic " + auth_base64,
@@ -53,7 +53,7 @@ def fetch_playlist_tracks(token, playlist_id):
     tracks = []
     
     # Το πραγματικό API URL χτίζεται δυναμικά:
-    url = f"https://api.{S_NAME}.{S_TLD}/v1/playlists/{playlist_id}/tracks"
+    url = f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
     
     headers = {"Authorization": f"Bearer {token}"}
     params = {"fields": "items(track(id,name,artists(name),external_ids)),next", "limit": 50, "offset": 0}
