@@ -44,7 +44,7 @@ def extract_playlist_id(playlist_arg):
 
 def fetch_playlist_tracks(token, playlist_id):
     tracks = []
-    url = f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
+    url = f"https://api.spotify.com/v1/playlists/{playlist_id}/items"
     headers = {"Authorization": f"Bearer {token}"}
     params = {"fields": "items(track(id,name,artists(name),external_ids)),next", "limit": 50, "offset": 0}
 
