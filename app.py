@@ -26,7 +26,10 @@ def get_app_token(client_id, client_secret):
     """Ανάκτηση Token με Client Credentials Flow (Ιδανικό για Public Playlists)"""
     auth_string = f"{client_id}:{client_secret}"
     auth_base64 = base64.b64encode(auth_string.encode("utf-8")).decode("utf-8")
-    url = "https://accounts.spotify.com/api/token"
+    
+    # Τα πραγματικά Links "σπασμένα" για να μην αλλοιώνονται
+    url = "https://" + "accounts.spotify.com" + "/api/token"
+    
     headers = {
         "Authorization": "Basic " + auth_base64,
         "Content-Type": "application/x-www-form-urlencoded"
@@ -44,7 +47,10 @@ def extract_playlist_id(playlist_arg):
 
 def fetch_playlist_tracks(token, playlist_id):
     tracks = []
-    url = f"https://api.spotify.com/v1/playlists/{playlist_id}/items"
+    
+    # Το πραγματικό API Link του Spotify
+    url = "https://" + "api.spotify.com" + "/v1/playlists/" + playlist_id + "/tracks"
+    
     headers = {"Authorization": f"Bearer {token}"}
     params = {"fields": "items(track(id,name,artists(name),external_ids)),next", "limit": 50, "offset": 0}
 
