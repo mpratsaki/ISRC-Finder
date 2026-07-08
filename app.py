@@ -7,7 +7,9 @@ Streamlit web version (Playlist-to-Excel Generator)
 Version update:
 - Adds Tidal ISRC credits lookup for songwriter/producer contributors, with
   Spotify main artists as a safe fallback.
-- Adds optional IPI LIST Excel upload for nickname/legal-name/IPI/PRO matching.
+- Loads the IPI LIST ground-truth Excel automatically from a private GitHub
+  repository using Streamlit secrets, so users do not upload sensitive files.
+- Adds nickname/legal-name/IPI/PRO matching from the private IPI LIST.
 - Updates the catalog export to TITLE / ROLE / WRITERS / ISRC / IPI / PRO / NOTES.
 
 IMPORTANT (post Feb-2026 Spotify API changes):
@@ -21,6 +23,7 @@ authorized Spotify accounts total - add testers in the app's dashboard under
 "User Management" if you need more than yourself using it.
 """
 
+import base64
 import io
 import re
 import time
@@ -54,13 +57,19 @@ TIDAL_EXCLUDED_ROLE_KEYS = {
     "mainartist",
 }
 
+# Private GitHub IPI LIST source. The Excel file must live in a private
+# repository. Store the read-only token and file location in Streamlit secrets.
+GITHUB_API_VERSION = "2022-11-28"
+GITHUB_CONTENTS_TIMEOUT_SECONDS = 20
+IPI_LIST_CACHE_TTL_SECONDS = 15 * 60
+
 
 # --------------------------------------------------------------------------
 # Credentials & config
 # --------------------------------------------------------------------------
 def get_config():
     """
-    Reads config from Streamlit secrets (Settings -> Secrets on Streamlit
+    Reads Spotify config from Streamlit secrets (Settings -> Secrets on Streamlit
     Community Cloud). Required keys:
       SPOTIFY_CLIENT_ID
       SPOTIFY_CLIENT_SECRET
@@ -76,6 +85,38 @@ def get_config():
         st.error(f"Λείπει η ρύθμιση {e} από τα Streamlit secrets.")
         st.stop()
     return client_id, client_secret, redirect_uri
+
+
+def get_private_ipi_config():
+    """
+    Reads the private GitHub source for the IPI LIST ground-truth Excel.
+
+    Required Streamlit secrets:
+      IPI_GITHUB_OWNER  -> GitHub user/org that owns the private repository
+      IPI_GITHUB_REPO   -> private repository name
+      IPI_GITHUB_PATH   -> path to the xlsx file inside the repository
+      IPI_GITHUB_TOKEN  -> fine-grained PAT with Contents: Read-only on that repo
+
+    Optional Streamlit secret:
+      IPI_GITHUB_REF    -> branch, tag, or commit SHA. Defaults to "main".
+    """
+    required_keys = [
+        "IPI_GITHUB_OWNER",
+        "IPI_GITHUB_REPO",
+        "IPI_GITHUB_PATH",
+        "IPI_GITHUB_TOKEN",
+    ]
+    missing = [key for key in required_keys if not str(st.secrets.get(key, "")).strip()]
+    if missing:
+        raise RuntimeError("Λείπουν Streamlit secrets για το IPI LIST: " + ", ".join(missing))
+
+    return {
+        "owner": str(st.secrets["IPI_GITHUB_OWNER"]).strip(),
+        "repo": str(st.secrets["IPI_GITHUB_REPO"]).strip(),
+        "path": str(st.secrets["IPI_GITHUB_PATH"]).strip(),
+        "ref": str(st.secrets.get("IPI_GITHUB_REF", "main")).strip() or "main",
+        "token": str(st.secrets["IPI_GITHUB_TOKEN"]).strip(),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -371,6 +412,69 @@ def fetch_tidal_contributors_by_isrc(isrc):
 
     except Exception:
         return [], "Tidal lookup failed — used Spotify artists as fallback"
+
+
+# --------------------------------------------------------------------------
+# Private GitHub IPI LIST source
+# --------------------------------------------------------------------------
+def _github_contents_api_url(owner, repo, path):
+    encoded_path = "/".join(
+        urllib.parse.quote(part, safe="")
+        for part in str(path).strip("/").split("/")
+        if part
+    )
+    return f"https://api.github.com/repos/{owner}/{repo}/contents/{encoded_path}"
+
+
+@st.cache_data(ttl=IPI_LIST_CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_private_ipi_list_bytes(owner, repo, path, ref, token):
+    """
+    Fetches the private IPI LIST Excel from GitHub using the repository contents
+    API. The token must be stored in Streamlit secrets, not in the repository.
+    """
+    url = _github_contents_api_url(owner, repo, path)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.raw+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        "User-Agent": "mms-matrix-catalog-generator",
+    }
+
+    response = requests.get(
+        url,
+        headers=headers,
+        params={"ref": ref},
+        timeout=GITHUB_CONTENTS_TIMEOUT_SECONDS,
+    )
+
+    if response.status_code in (401, 403):
+        raise RuntimeError("Το GitHub token δεν έχει πρόσβαση στο ιδιωτικό IPI LIST repo.")
+    if response.status_code == 404:
+        raise RuntimeError("Δεν βρέθηκε το IPI LIST αρχείο στο ιδιωτικό GitHub repo.")
+
+    response.raise_for_status()
+
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "application/json" in content_type:
+        # Defensive fallback if GitHub returns the default JSON representation
+        # instead of raw bytes. The 'content' field is Base64 encoded.
+        data = response.json()
+        encoded_content = str(data.get("content") or "").replace("\n", "")
+        if not encoded_content:
+            raise RuntimeError("Το GitHub API δεν επέστρεψε περιεχόμενο για το IPI LIST.")
+        file_bytes = base64.b64decode(encoded_content)
+    else:
+        file_bytes = response.content
+
+    if not file_bytes:
+        raise RuntimeError("Το IPI LIST αρχείο είναι κενό.")
+
+    # .xlsx files are ZIP containers and normally start with PK. This catches
+    # accidental HTML/JSON error payloads before openpyxl tries to parse them.
+    if not file_bytes.startswith(b"PK"):
+        raise RuntimeError("Το αρχείο που φορτώθηκε από GitHub δεν φαίνεται να είναι έγκυρο .xlsx.")
+
+    return file_bytes
 
 
 # --------------------------------------------------------------------------
@@ -703,22 +807,19 @@ with col2:
         st.rerun()
 
 st.subheader("1. IPI LIST")
-ipi_file = st.file_uploader(
-    "Ανεβάστε το Excel αρχείο με το sheet 'IPI LIST' (προαιρετικό)",
-    type=["xlsx"],
-    help="Αν δεν ανέβει αρχείο, τα ονόματα θα μείνουν όπως έρχονται από το API και τα IPI/PRO θα μείνουν κενά.",
-)
-
-ipi_lookup = {}
-if ipi_file is None:
-    st.info("Δεν έχει ανέβει αρχείο IPI LIST. Το lookup θα παραλειφθεί και τα ονόματα θα χρησιμοποιηθούν όπως έρχονται από το API.")
-else:
-    try:
-        ipi_lookup, ipi_source_rows = build_ipi_lookup_from_bytes(ipi_file.getvalue())
-        st.success(f"Το IPI LIST φορτώθηκε επιτυχώς: {ipi_source_rows} εγγραφές.")
-    except Exception as e:
-        ipi_lookup = {}
-        st.warning(f"Δεν ήταν δυνατή η ανάγνωση του IPI LIST. Το lookup θα παραλειφθεί. Λεπτομέρεια: {e}")
+try:
+    private_ipi_config = get_private_ipi_config()
+    with st.spinner("Φόρτωση IPI LIST από το ιδιωτικό GitHub repo..."):
+        ipi_file_bytes = fetch_private_ipi_list_bytes(**private_ipi_config)
+        ipi_lookup, ipi_source_rows = build_ipi_lookup_from_bytes(ipi_file_bytes)
+    st.success(f"Το IPI LIST φορτώθηκε ως ground truth: {ipi_source_rows} εγγραφές.")
+except Exception as e:
+    st.error(
+        "Δεν ήταν δυνατή η φόρτωση του IPI LIST από το ιδιωτικό GitHub repo. "
+        "Η δημιουργία Excel σταματά για να μην παραχθεί catalog χωρίς ground truth."
+    )
+    st.caption(f"Τεχνική λεπτομέρεια: {e}")
+    st.stop()
 
 try:
     with st.spinner("Φόρτωση των playlists σας..."):
