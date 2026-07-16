@@ -164,12 +164,10 @@ def extract_playlist_id(playlist_arg):
     return playlist_arg.strip()
 
 def extract_artist_id(artist_arg):
-    # Καθαρισμός του URL από τα ?si=... και τα query params
     clean_arg = str(artist_arg).split("?")[0].split("&")[0].strip()
     m = re.search(r"artist[/:]([a-zA-Z0-9]+)", clean_arg)
     if m:
         return m.group(1)
-    # Εφεδρικό fallback: σε περίπτωση που γίνει επικόλληση σκέτου ID
     return clean_arg.split("/")[-1].split(":")[-1]
 
 def _api_get(token, url, params=None, retries=3):
@@ -182,7 +180,6 @@ def _api_get(token, url, params=None, retries=3):
             continue
         
         if not resp.ok:
-            # Αντικαθιστά το γενικό HTTPError με το συγκεκριμένο μήνυμα λάθους του Spotify
             try:
                 err_msg = resp.json().get("error", {}).get("message", "")
                 if err_msg:
@@ -257,9 +254,9 @@ def fetch_artist_albums(token, artist_id):
     """Ανάκτηση όλων των Albums, EPs, Singles, και Appears On ενός καλλιτέχνη"""
     albums = set()
     url = f"https://api.spotify.com/v1/artists/{artist_id}/albums"
+    # Αφαιρέθηκε το limit: 50 για να αποφύγουμε το Spotify API Error 400 Invalid limit
     params = {
-        "include_groups": "album,single,compilation,appears_on",
-        "limit": 50
+        "include_groups": "album,single,compilation,appears_on"
     }
     while url:
         data = _api_get(token, url, params=params)
@@ -274,7 +271,6 @@ def fetch_artist_albums(token, artist_id):
 def fetch_tracks_from_albums(token, album_ids):
     """Ανάκτηση όλων των Track IDs από λίστα με Albums (Σε chunks των 20)"""
     track_ids = set()
-    # Αυστηρό φιλτράρισμα άκυρων IDs
     valid_album_ids = [aid for aid in album_ids if aid and isinstance(aid, str) and aid != "null"]
     
     for i in range(0, len(valid_album_ids), 20):
@@ -293,13 +289,12 @@ def fetch_tracks_from_albums(token, album_ids):
     return list(track_ids)
 
 def fetch_full_tracks(token, track_ids):
-    """Ανάκτηση πλήρων Track details (για να πάρουμε ISRC) σε chunks των 50"""
+    """Ανάκτηση πλήρων Track details (για να πάρουμε ISRC) σε chunks των 20 για ασφάλεια"""
     tracks = []
-    # Αυστηρό φιλτράρισμα άκυρων IDs
     valid_track_ids = [tid for tid in track_ids if tid and isinstance(tid, str) and tid != "null"]
     
-    for i in range(0, len(valid_track_ids), 50):
-        chunk = valid_track_ids[i:i+50]
+    for i in range(0, len(valid_track_ids), 20):
+        chunk = valid_track_ids[i:i+20]
         if not chunk: continue
         
         data = _api_get(token, "https://api.spotify.com/v1/tracks", params={"ids": ",".join(chunk)})
@@ -948,7 +943,7 @@ else: # Προφίλ Καλλιτέχνη
 
         artist_id = extract_artist_id(artist_input)
         if not artist_id:
-            st.warning("Δεν αναγνωρίστηκε έγκυρο Link καλλιτέχνη. Βεβαιωθείτε ότι είναι της μορφής https://open.spotify.com/artist/ID")
+            st.warning("Δεν αναγνωρίστηκε έγκυρο Link καλλιτέχνη.")
             st.stop()
 
         try:
