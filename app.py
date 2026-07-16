@@ -251,10 +251,8 @@ def get_artist_name(token, artist_id):
         return f"Artist_{artist_id}"
 
 def fetch_artist_albums(token, artist_id):
-    """Ανάκτηση όλων των Albums, EPs, Singles, και Appears On ενός καλλιτέχνη"""
     albums = set()
     url = f"https://api.spotify.com/v1/artists/{artist_id}/albums"
-    # Αφαιρέθηκε το limit: 50 για να αποφύγουμε το Spotify API Error 400 Invalid limit
     params = {
         "include_groups": "album,single,compilation,appears_on"
     }
@@ -262,52 +260,83 @@ def fetch_artist_albums(token, artist_id):
         data = _api_get(token, url, params=params)
         for item in data.get("items", []):
             aid = item.get("id")
-            if aid and aid != "null":  # Προστασία από null IDs
+            if aid and aid != "null":
                 albums.add(aid)
         url = data.get("next")
         params = None
     return list(albums)
 
-def fetch_tracks_from_albums(token, album_ids):
-    """Ανάκτηση όλων των Track IDs από λίστα με Albums (Σε chunks των 20)"""
+def fetch_tracks_from_albums(token, album_ids, status_placeholder=None):
+    """
+    Ανάκτηση των Tracks από κάθε Album ξεχωριστά.
+    Έτσι αν κάποιο album είναι region-locked (403), δεν κρασάρει όλη η διαδικασία.
+    """
     track_ids = set()
     valid_album_ids = [aid for aid in album_ids if aid and isinstance(aid, str) and aid != "null"]
+    total = len(valid_album_ids)
     
-    for i in range(0, len(valid_album_ids), 20):
-        chunk = valid_album_ids[i:i+20]
-        if not chunk: continue
-        
-        data = _api_get(token, "https://api.spotify.com/v1/albums", params={"ids": ",".join(chunk)})
-        for album in data.get("albums", []):
-            if not album: continue
+    for idx, aid in enumerate(valid_album_ids, 1):
+        if status_placeholder:
+            status_placeholder.info(f"Σάρωση κυκλοφορίας {idx}/{total}...")
             
-            for track in (album.get("tracks") or {}).get("items", []):
-                tid = track.get("id")
-                if tid and tid != "null":  # Προστασία από local tracks / null
-                    track_ids.add(tid)
-                    
+        try:
+            url = f"https://api.spotify.com/v1/albums/{aid}/tracks"
+            params = {"limit": 50}
+            while url:
+                data = _api_get(token, url, params=params)
+                for track in data.get("items", []):
+                    tid = track.get("id")
+                    if tid and tid != "null":
+                        track_ids.add(tid)
+                url = data.get("next")
+                params = None
+        except Exception:
+            # Αν χτυπήσει 403 Forbidden ή κάτι άλλο σε ένα μεμονωμένο album, απλά το αγνοούμε
+            continue
+            
     return list(track_ids)
 
-def fetch_full_tracks(token, track_ids):
-    """Ανάκτηση πλήρων Track details (για να πάρουμε ISRC) σε chunks των 20 για ασφάλεια"""
+def fetch_full_tracks(token, track_ids, status_placeholder=None):
+    """Ανάκτηση πλήρων Track details (για να πάρουμε ISRC) με Fallback μηχανισμό."""
     tracks = []
     valid_track_ids = [tid for tid in track_ids if tid and isinstance(tid, str) and tid != "null"]
     
-    for i in range(0, len(valid_track_ids), 20):
-        chunk = valid_track_ids[i:i+20]
+    # Χωρίζουμε σε πακέτα των 20 για ασφάλεια
+    chunks = [valid_track_ids[i:i+20] for i in range(0, len(valid_track_ids), 20)]
+    total = len(chunks)
+    
+    for idx, chunk in enumerate(chunks, 1):
+        if status_placeholder:
+            status_placeholder.info(f"Ανάκτηση δεδομένων τραγουδιών (ISRC)... Πακέτο {idx}/{total}")
         if not chunk: continue
         
-        data = _api_get(token, "https://api.spotify.com/v1/tracks", params={"ids": ",".join(chunk)})
-        for track in data.get("tracks", []):
-            if not track: continue
-            isrc = (track.get("external_ids") or {}).get("isrc")
-            tracks.append({
-                "id": track["id"],
-                "name": track["name"],
-                "artists": [a["name"] for a in track.get("artists", [])],
-                "isrc": isrc
-            })
-            
+        try:
+            data = _api_get(token, "https://api.spotify.com/v1/tracks", params={"ids": ",".join(chunk)})
+            for track in data.get("tracks", []):
+                if not track: continue
+                isrc = (track.get("external_ids") or {}).get("isrc")
+                tracks.append({
+                    "id": track["id"],
+                    "name": track["name"],
+                    "artists": [a["name"] for a in track.get("artists", [])],
+                    "isrc": isrc
+                })
+        except Exception:
+            # Αν ένα πακέτο των 20 κρασάρει (π.χ. 403), δοκιμάζουμε ένα-ένα τα τραγούδια του πακέτου
+            for tid in chunk:
+                try:
+                    t_data = _api_get(token, f"https://api.spotify.com/v1/tracks/{tid}")
+                    if t_data:
+                        isrc = (t_data.get("external_ids") or {}).get("isrc")
+                        tracks.append({
+                            "id": t_data["id"],
+                            "name": t_data["name"],
+                            "artists": [a["name"] for a in t_data.get("artists", [])],
+                            "isrc": isrc
+                        })
+                except Exception:
+                    pass
+                    
     return tracks
 
 def deduplicate_tracks(tracks):
@@ -947,30 +976,29 @@ else: # Προφίλ Καλλιτέχνη
             st.stop()
 
         try:
-            with st.spinner("Σάρωση του προφίλ του καλλιτέχνη... (Αυτό μπορεί να διαρκέσει λίγο)"):
-                
-                # 1. Παίρνουμε το όνομα του καλλιτέχνη για το filename
-                artist_name = get_artist_name(token, artist_id)
-                catalog_filename_base = f"{artist_name}_Discography"
+            status_placeholder = st.empty()
+            
+            # 1. Παίρνουμε το όνομα του καλλιτέχνη για το filename
+            artist_name = get_artist_name(token, artist_id)
+            catalog_filename_base = f"{artist_name}_Discography"
 
-                # 2. Φορτώνουμε όλα τα IDs των Albums/EPs/Singles/Appears On
-                album_ids = fetch_artist_albums(token, artist_id)
-                if not album_ids:
-                    st.warning(f"Δεν βρέθηκαν κυκλοφορίες για τον καλλιτέχνη {artist_name}.")
-                    st.stop()
+            # 2. Φορτώνουμε όλα τα IDs των Albums/EPs/Singles/Appears On
+            status_placeholder.info("Αναζήτηση κυκλοφοριών (Albums/Singles/Appears On)...")
+            album_ids = fetch_artist_albums(token, artist_id)
+            if not album_ids:
+                st.warning(f"Δεν βρέθηκαν κυκλοφορίες για τον καλλιτέχνη {artist_name}.")
+                st.stop()
 
-                status_placeholder = st.empty()
-                status_placeholder.info(f"Βρέθηκαν {len(album_ids)} releases (Albums/EPs/Singles/Συμμετοχές). Ανάκτηση τραγουδιών...")
-
-                # 3. Βρίσκουμε όλα τα Tracks από αυτά τα Albums
-                track_ids = fetch_tracks_from_albums(token, album_ids)
-                status_placeholder.info(f"Βρέθηκαν {len(track_ids)} συνολικά τραγούδια. Επεξεργασία και αφαίρεση διπλότυπων...")
-
-                # 4. Φορτώνουμε τα πλήρη δεδομένα (ISRC) και αφαιρούμε τα διπλότυπα
-                raw_tracks = fetch_full_tracks(token, track_ids)
-                tracks_to_process = deduplicate_tracks(raw_tracks)
-                
-                status_placeholder.empty()
+            # 3. Βρίσκουμε όλα τα Tracks από αυτά τα Albums (Ένα-ένα)
+            track_ids = fetch_tracks_from_albums(token, album_ids, status_placeholder)
+            
+            # 4. Φορτώνουμε τα πλήρη δεδομένα (ISRC) (Σε ασφαλή πακέτα)
+            raw_tracks = fetch_full_tracks(token, track_ids, status_placeholder)
+            
+            status_placeholder.info("Αφαίρεση διπλότυπων τραγουδιών...")
+            tracks_to_process = deduplicate_tracks(raw_tracks)
+            
+            status_placeholder.empty()
 
         except Exception as e:
             st.error(f"Κάτι πήγε στραβά κατά τη σάρωση: {e}")
