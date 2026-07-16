@@ -11,16 +11,13 @@ Version update:
   repository using Streamlit secrets, so users do not upload sensitive files.
 - Adds nickname/legal-name/IPI/PRO matching from the private IPI LIST.
 - Updates the catalog export to TITLE / ROLE / WRITERS / ISRC / IPI / PRO / NOTES.
+- Adds Artist Profile mode to scan all discography (Albums, Singles, Appears On) automatically.
 
 IMPORTANT (post Feb-2026 Spotify API changes):
 Spotify no longer returns playlist contents via Client Credentials, and even
 with a logged-in user, playlist items are only returned for playlists that
 user OWNS or COLLABORATES ON. So this app makes each visitor log in with
 their own Spotify account, and lets them pick from THEIR playlists only.
-
-Spotify also currently caps unverified ("Development Mode") apps to 5
-authorized Spotify accounts total - add testers in the app's dashboard under
-"User Management" if you need more than yourself using it.
 """
 
 import base64
@@ -36,7 +33,6 @@ from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 import openpyxl
 import requests
 import streamlit as st
-from openpyxl.styles import Alignment, Font
 
 SCOPE = "playlist-read-private playlist-read-collaborative"
 
@@ -58,8 +54,7 @@ TIDAL_EXCLUDED_ROLE_KEYS = {
     "mainartist",
 }
 
-# Private GitHub IPI LIST source. The Excel file must live in a private
-# repository. Store the read-only token and file location in Streamlit secrets.
+# Private GitHub IPI LIST source.
 GITHUB_API_VERSION = "2022-11-28"
 GITHUB_CONTENTS_TIMEOUT_SECONDS = 20
 IPI_LIST_CACHE_TTL_SECONDS = 15 * 60
@@ -69,15 +64,6 @@ IPI_LIST_CACHE_TTL_SECONDS = 15 * 60
 # Credentials & config
 # --------------------------------------------------------------------------
 def get_config():
-    """
-    Reads Spotify config from Streamlit secrets (Settings -> Secrets on Streamlit
-    Community Cloud). Required keys:
-      SPOTIFY_CLIENT_ID
-      SPOTIFY_CLIENT_SECRET
-      REDIRECT_URI   -> must exactly match a Redirect URI registered in your
-                         Spotify Dashboard app, e.g. https://yourapp.streamlit.app
-                         (use http://localhost:8501 while testing locally)
-    """
     try:
         client_id = st.secrets["SPOTIFY_CLIENT_ID"]
         client_secret = st.secrets["SPOTIFY_CLIENT_SECRET"]
@@ -89,18 +75,6 @@ def get_config():
 
 
 def get_private_ipi_config():
-    """
-    Reads the private GitHub source for the IPI LIST ground-truth Excel.
-
-    Required Streamlit secrets:
-      IPI_GITHUB_OWNER  -> GitHub user/org that owns the private repository
-      IPI_GITHUB_REPO   -> private repository name
-      IPI_GITHUB_PATH   -> path to the xlsx file inside the repository
-      IPI_GITHUB_TOKEN  -> fine-grained PAT with Contents: Read-only on that repo
-
-    Optional Streamlit secret:
-      IPI_GITHUB_REF    -> branch, tag, or commit SHA. Defaults to "main".
-    """
     required_keys = [
         "IPI_GITHUB_OWNER",
         "IPI_GITHUB_REPO",
@@ -163,7 +137,6 @@ def refresh_access_token(client_id, client_secret, refresh_token):
 
 
 def get_valid_token():
-    """Returns a valid access token from session_state, refreshing if needed."""
     token_data = st.session_state.get("token_data")
     if not token_data:
         return None
@@ -190,6 +163,11 @@ def extract_playlist_id(playlist_arg):
         return m.group(1).split("?")[0]
     return playlist_arg.strip()
 
+def extract_artist_id(artist_arg):
+    m = re.search(r"artist[/:]([a-zA-Z0-9]+)", artist_arg)
+    if m:
+        return m.group(1).split("?")[0]
+    return artist_arg.strip()
 
 def _api_get(token, url, params=None, retries=3):
     headers = {"Authorization": f"Bearer {token}"}
@@ -205,7 +183,6 @@ def _api_get(token, url, params=None, retries=3):
 
 
 def fetch_user_playlists(token):
-    """Returns the logged-in user's own + collaborative playlists."""
     playlists = []
     url = "https://api.spotify.com/v1/me/playlists"
     params = {"limit": 50}
@@ -216,7 +193,6 @@ def fetch_user_playlists(token):
             playlists.append({"id": item["id"], "name": item["name"]})
         url = data.get("next")
         params = None
-
     return playlists
 
 
@@ -257,6 +233,80 @@ def fetch_playlist_tracks(token, playlist_id):
 
     return tracks
 
+def get_artist_name(token, artist_id):
+    try:
+        data = _api_get(token, f"https://api.spotify.com/v1/artists/{artist_id}")
+        return data.get("name", f"Artist_{artist_id}")
+    except:
+        return f"Artist_{artist_id}"
+
+def fetch_artist_albums(token, artist_id):
+    """Ανάκτηση όλων των Albums, EPs, Singles, και Appears On ενός καλλιτέχνη"""
+    albums = set()
+    url = f"https://api.spotify.com/v1/artists/{artist_id}/albums"
+    params = {
+        "include_groups": "album,single,compilation,appears_on",
+        "limit": 50
+    }
+    while url:
+        data = _api_get(token, url, params=params)
+        for item in data.get("items", []):
+            albums.add(item["id"])
+        url = data.get("next")
+        params = None
+    return list(albums)
+
+def fetch_tracks_from_albums(token, album_ids):
+    """Ανάκτηση όλων των Track IDs από λίστα με Albums (Σε chunks των 20)"""
+    track_ids = set()
+    for i in range(0, len(album_ids), 20):
+        chunk = album_ids[i:i+20]
+        data = _api_get(token, "https://api.spotify.com/v1/albums", params={"ids": ",".join(chunk)})
+        for album in data.get("albums", []):
+            if not album: continue
+            for track in album.get("tracks", {}).get("items", []):
+                track_ids.add(track["id"])
+    return list(track_ids)
+
+def fetch_full_tracks(token, track_ids):
+    """Ανάκτηση πλήρων Track details (για να πάρουμε ISRC) σε chunks των 50"""
+    tracks = []
+    for i in range(0, len(track_ids), 50):
+        chunk = track_ids[i:i+50]
+        data = _api_get(token, "https://api.spotify.com/v1/tracks", params={"ids": ",".join(chunk)})
+        for track in data.get("tracks", []):
+            if not track: continue
+            isrc = (track.get("external_ids") or {}).get("isrc")
+            tracks.append({
+                "id": track["id"],
+                "name": track["name"],
+                "artists": [a["name"] for a in track.get("artists", [])],
+                "isrc": isrc
+            })
+    return tracks
+
+def deduplicate_tracks(tracks):
+    """Αφαίρεση διπλότυπων τραγουδιών με βάση το ISRC ή το όνομα αν δεν υπάρχει ISRC"""
+    seen_isrc = set()
+    seen_name = set()
+    unique_tracks = []
+    
+    for track in tracks:
+        isrc = track.get("isrc")
+        name_key = str(track.get("name", "")).strip().lower()
+
+        if isrc:
+            if isrc in seen_isrc:
+                continue
+            seen_isrc.add(isrc)
+        else:
+            if name_key in seen_name:
+                continue
+            seen_name.add(name_key)
+
+        unique_tracks.append(track)
+        
+    return unique_tracks
 
 def validate_isrc(isrc):
     if not isrc:
@@ -274,7 +324,6 @@ def _role_key(role):
 
 
 def _is_allowed_tidal_role(role):
-    """Allow only songwriter/producer roles; exclude publishers, engineers, artists, etc."""
     role_text = str(role or "").strip()
     if not role_text:
         return False
@@ -285,13 +334,11 @@ def _is_allowed_tidal_role(role):
     if key in TIDAL_ALLOWED_ROLE_KEYS:
         return True
 
-    # Defensive handling for rare combined role strings such as "Composer/Lyricist".
     parts = re.split(r"[,;/|&]+", role_text)
     return any(_role_key(part) in TIDAL_ALLOWED_ROLE_KEYS for part in parts)
 
 
 def _extract_items(data):
-    """Tidal responses normally contain an 'items' list; keep this tolerant."""
     if isinstance(data, list):
         return data
     if not isinstance(data, dict):
@@ -309,10 +356,6 @@ def _extract_items(data):
 
 
 def _tidal_get(url, params=None, retries=3):
-    """
-    Safe Tidal GET wrapper. Never raises to the UI path.
-    Returns (json_data, note_if_failed).
-    """
     headers = {"X-Tidal-Token": TIDAL_TOKEN}
     last_note = "Tidal request failed — used Spotify artists as fallback"
 
@@ -351,11 +394,6 @@ def _tidal_get(url, params=None, retries=3):
 
 
 def fetch_tidal_contributors_by_isrc(isrc):
-    """
-    Finds the first Tidal track by ISRC and returns unique contributor names for
-    Composer/Lyricist/Writer/Author/Producer roles only.
-    Returns (names, note_if_fallback_needed).
-    """
     try:
         clean_isrc = str(isrc or "").replace("-", "").strip().upper()
         if not clean_isrc:
@@ -429,10 +467,6 @@ def _github_contents_api_url(owner, repo, path):
 
 @st.cache_data(ttl=IPI_LIST_CACHE_TTL_SECONDS, show_spinner=False)
 def fetch_private_ipi_list_bytes(owner, repo, path, ref, token):
-    """
-    Fetches the private IPI LIST Excel from GitHub using the repository contents
-    API. The token must be stored in Streamlit secrets, not in the repository.
-    """
     url = _github_contents_api_url(owner, repo, path)
     headers = {
         "Authorization": f"Bearer {token}",
@@ -457,8 +491,6 @@ def fetch_private_ipi_list_bytes(owner, repo, path, ref, token):
 
     content_type = response.headers.get("Content-Type", "").lower()
     if "application/json" in content_type:
-        # Defensive fallback if GitHub returns the default JSON representation
-        # instead of raw bytes. The 'content' field is Base64 encoded.
         data = response.json()
         encoded_content = str(data.get("content") or "").replace("\n", "")
         if not encoded_content:
@@ -470,8 +502,6 @@ def fetch_private_ipi_list_bytes(owner, repo, path, ref, token):
     if not file_bytes:
         raise RuntimeError("Το IPI LIST αρχείο είναι κενό.")
 
-    # .xlsx files are ZIP containers and normally start with PK. This catches
-    # accidental HTML/JSON error payloads before openpyxl tries to parse them.
     if not file_bytes.startswith(b"PK"):
         raise RuntimeError("Το αρχείο που φορτώθηκε από GitHub δεν φαίνεται να είναι έγκυρο .xlsx.")
 
@@ -488,14 +518,12 @@ def _clean_text(value):
 
 
 def _lookup_key(value):
-    """Case-insensitive lookup key matching nickname.strip().lower()."""
     text = _clean_text(value)
     text = re.sub(r"\s+", " ", text)
     return text.lower()
 
 
 def _parse_ipi(value):
-    """Return IPI as an int where possible, so Excel stores it as a number."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, int):
@@ -524,13 +552,6 @@ def _parse_ipi(value):
 
 @st.cache_data(show_spinner=False)
 def build_ipi_lookup_from_bytes(file_bytes):
-    """
-    Builds:
-      {
-        nickname.strip().lower(): {"legal": LEGAL NAME, "ipi": IPI, "pro": PRO},
-        legal_name.strip().lower(): {"legal": LEGAL NAME, "ipi": IPI, "pro": PRO},
-      }
-    """
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
     try:
         if "IPI LIST" not in wb.sheetnames:
@@ -650,7 +671,6 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
     center_alignment = Alignment(horizontal="center", vertical="center")
     top_alignment = Alignment(vertical="top", wrap_text=True)
 
-    # Πιο έντονο μαύρο περίγραμμα (medium style)
     black_border = Border(
         left=Side(style='medium', color='000000'),
         right=Side(style='medium', color='000000'),
@@ -658,7 +678,6 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
         bottom=Side(style='medium', color='000000')
     )
 
-    # Γκρι γέμισμα για το διαχωριστικό κελί
     gray_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
 
     headers = ["TITLE", "ROLE", "WRITERS", "ISRC", "IPI", "PRO", "NOTES"]
@@ -723,14 +742,12 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
         contributor_rows = _build_contributor_rows(contributor_names, ipi_lookup)
         report["ipi_matches"] += sum(1 for row in contributor_rows if row["matched"])
 
-        # Δημιουργούμε ακριβώς όσες γραμμές χρειάζονται για τους writers
         needed_rows = max(1, len(contributor_rows))
         notes_text = "; ".join(dict.fromkeys(note for note in notes if note))
 
         for i in range(needed_rows):
             current_row = insert_at + i
 
-            # Επαναλαμβάνουμε TITLE, ISRC και NOTES σε ΚΑΘΕ γραμμή του πλαισίου
             ws.cell(row=current_row, column=1).value = title
             if isrc:
                 ws.cell(row=current_row, column=4).value = isrc
@@ -749,13 +766,11 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
                 if contributor["pro"]:
                     ws.cell(row=current_row, column=6).value = contributor["pro"]
 
-            # Εφαρμογή του μαύρου περιγράμματος σε όλα τα κελιά της τρέχουσας γραμμής
             for col_num in range(1, 8):
                 cell = ws.cell(row=current_row, column=col_num)
                 cell.alignment = top_alignment
                 cell.border = black_border
 
-        # --- Προσθήκη Γκρι Διαχωριστικής Γραμμής ---
         separator_row = insert_at + needed_rows
         for col_num in range(1, 8):
             cell = ws.cell(row=separator_row, column=col_num)
@@ -772,7 +787,6 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
             }
         )
 
-        # Το επόμενο τραγούδι ξεκινά μετά το block των writers + 1 γραμμή για το διαχωριστικό
         insert_at += needed_rows + 1
 
     buffer = io.BytesIO()
@@ -798,18 +812,22 @@ def make_catalog_filename(playlist_name):
 # --------------------------------------------------------------------------
 # Streamlit UI
 # --------------------------------------------------------------------------
-# Για το εικονίδιο πάνω στην καρτέλα του browser βάζεις το όνομα του αρχείου
 st.set_page_config(page_title="Stay Independent Catalog Generator", page_icon="StayLogo2.jpg")
 
-# Για να εμφανιστεί το λογότυπο μέσα στη σελίδα
-st.image("StayLogo2.jpg", width=200) # Μπορείς να αλλάξεις το width (πλάτος) για να φαίνεται στο μέγεθος που θες
+try:
+    with open("StayLogo2.jpg", "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode()
+    st.markdown(
+        f'<img src="data:image/jpeg;base64,{encoded_string}" width="200">',
+        unsafe_allow_html=True,
+    )
+except FileNotFoundError:
+    st.image("StayLogo2.jpg", width=200)
 
-# Ο τίτλος πλέον καθαρός, χωρίς τη νότα
 st.title("Stay Independent Catalog Generator")
 
 client_id, client_secret, redirect_uri = get_config()
 
-# Step 1: handle the redirect back from Spotify (?code=... in the URL)
 query_params = st.query_params
 if "error" in query_params:
     st.error(f"Η σύνδεση με το Spotify απέτυχε: {query_params['error']}")
@@ -825,14 +843,12 @@ elif "code" in query_params and "token_data" not in st.session_state:
 
 token = get_valid_token()
 
-# Step 2: not logged in -> show login link
 if not token:
     auth_url = build_authorize_url(client_id, redirect_uri)
     st.write("Συνδεθείτε με το Spotify σας για να δείτε τις playlists σας (δικές σας ή collaborative).")
     st.link_button("🔑 Σύνδεση με Spotify", auth_url, type="primary")
     st.stop()
 
-# Step 3: logged in -> show their playlists
 col1, col2 = st.columns([3, 1])
 with col2:
     if st.button("Αποσύνδεση"):
@@ -854,43 +870,105 @@ except Exception as e:
     st.caption(f"Τεχνική λεπτομέρεια: {e}")
     st.stop()
 
-try:
-    with st.spinner("Φόρτωση των playlists σας..."):
-        playlists = fetch_user_playlists(token)
-except requests.HTTPError as e:
-    st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
-    st.stop()
 
-if not playlists:
-    st.warning("Δεν βρέθηκαν playlists στο λογαριασμό σας.")
-    st.stop()
+# ΝΕΟ ΜΕΝΟΥ ΕΠΙΛΟΓΗΣ ΠΗΓΗΣ
+st.subheader("2. Επιλογή Πηγής Δεδομένων")
+source_mode = st.radio(
+    "Από πού θέλετε να αντλήσετε τα τραγούδια;",
+    ["Playlist (Από τον λογαριασμό σας)", "Προφίλ Καλλιτέχνη (Σάρωση όλης της δισκογραφίας)"]
+)
 
-st.subheader("2. Playlist")
-playlist_names = [p["name"] for p in playlists]
-selected_name = st.selectbox("Επιλέξτε playlist", playlist_names)
-selected_playlist = next(p for p in playlists if p["name"] == selected_name)
+tracks_to_process = []
+catalog_filename_base = "Export"
 
-if st.button("Δημιουργία Excel ✔️", type="primary"):
+if source_mode == "Playlist (Από τον λογαριασμό σας)":
     try:
-        with st.spinner("Ανάκτηση τραγουδιών από Spotify..."):
-            tracks = fetch_playlist_tracks(token, selected_playlist["id"])
+        with st.spinner("Φόρτωση των playlists σας..."):
+            playlists = fetch_user_playlists(token)
+    except requests.HTTPError as e:
+        st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
+        st.stop()
 
-        if not tracks:
-            st.warning("Δεν βρέθηκαν τραγούδια σε αυτή την playlist.")
+    if not playlists:
+        st.warning("Δεν βρέθηκαν playlists στο λογαριασμό σας.")
+        st.stop()
+
+    playlist_names = [p["name"] for p in playlists]
+    selected_name = st.selectbox("Επιλέξτε playlist", playlist_names)
+    selected_playlist = next(p for p in playlists if p["name"] == selected_name)
+
+    if st.button("Δημιουργία Excel ✔️", type="primary"):
+        try:
+            with st.spinner("Ανάκτηση τραγουδιών από Spotify Playlist..."):
+                tracks_to_process = fetch_playlist_tracks(token, selected_playlist["id"])
+            catalog_filename_base = selected_playlist["name"]
+        except requests.HTTPError as e:
+            st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
+        except Exception as e:
+            st.error(f"Κάτι πήγε στραβά: {e}")
+
+else: # Προφίλ Καλλιτέχνη
+    artist_input = st.text_input("Εισάγετε Link ή URI Καλλιτέχνη Spotify (π.χ. https://open.spotify.com/artist/...)")
+    
+    if st.button("Δημιουργία Excel ✔️", type="primary"):
+        if not artist_input.strip():
+            st.warning("Παρακαλώ εισάγετε το Link του καλλιτέχνη.")
             st.stop()
 
-        st.success(f"Βρέθηκαν {len(tracks)} τραγούδια!")
+        artist_id = extract_artist_id(artist_input)
+        if not artist_id:
+            st.warning("Δεν αναγνωρίστηκε έγκυρο Link καλλιτέχνη. Βεβαιωθείτε ότι είναι της μορφής https://open.spotify.com/artist/ID")
+            st.stop()
 
-        progress_bar = st.progress(0.0)
-        status_placeholder = st.empty()
+        try:
+            with st.spinner("Σάρωση του προφίλ του καλλιτέχνη... (Αυτό μπορεί να διαρκέσει λίγο)"):
+                
+                # 1. Παίρνουμε το όνομα του καλλιτέχνη για το filename
+                artist_name = get_artist_name(token, artist_id)
+                catalog_filename_base = f"{artist_name}_Discography"
 
-        def update_generation_progress(current, total, title):
-            progress_value = (current - 1) / max(total, 1)
-            progress_bar.progress(progress_value)
-            status_placeholder.write(f"🔍 Ανάκτηση credits για «{title}»...")
+                # 2. Φορτώνουμε όλα τα IDs των Albums/EPs/Singles/Appears On
+                album_ids = fetch_artist_albums(token, artist_id)
+                if not album_ids:
+                    st.warning(f"Δεν βρέθηκαν κυκλοφορίες για τον καλλιτέχνη {artist_name}.")
+                    st.stop()
 
+                status_placeholder = st.empty()
+                status_placeholder.info(f"Βρέθηκαν {len(album_ids)} releases (Albums/EPs/Singles/Συμμετοχές). Ανάκτηση τραγουδιών...")
+
+                # 3. Βρίσκουμε όλα τα Tracks από αυτά τα Albums
+                track_ids = fetch_tracks_from_albums(token, album_ids)
+                status_placeholder.info(f"Βρέθηκαν {len(track_ids)} συνολικά τραγούδια. Επεξεργασία και αφαίρεση διπλότυπων...")
+
+                # 4. Φορτώνουμε τα πλήρη δεδομένα (ISRC) και αφαιρούμε τα διπλότυπα
+                raw_tracks = fetch_full_tracks(token, track_ids)
+                tracks_to_process = deduplicate_tracks(raw_tracks)
+                
+                status_placeholder.empty()
+
+        except requests.HTTPError as e:
+            st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
+        except Exception as e:
+            st.error(f"Κάτι πήγε στραβά κατά τη σάρωση: {e}")
+
+
+# --------------------------------------------------------------------------
+# Κοινός Κώδικας Δημιουργίας του Excel (Εκτελείται μόνο αν γεμίσει η λίστα tracks_to_process)
+# --------------------------------------------------------------------------
+if tracks_to_process:
+    st.success(f"Βρέθηκαν {len(tracks_to_process)} μοναδικά τραγούδια για εξαγωγή!")
+
+    progress_bar = st.progress(0.0)
+    status_placeholder = st.empty()
+
+    def update_generation_progress(current, total, title):
+        progress_value = (current - 1) / max(total, 1)
+        progress_bar.progress(progress_value)
+        status_placeholder.write(f"🔍 Ανάκτηση credits για «{title}»...")
+
+    try:
         buffer, report = generate_new_catalog(
-            tracks,
+            tracks_to_process,
             ipi_lookup=ipi_lookup,
             progress_callback=update_generation_progress,
         )
@@ -904,22 +982,20 @@ if st.button("Δημιουργία Excel ✔️", type="primary"):
                 st.write(f"- **{title}**: Άκυρο ISRC ({isrc})")
 
         if report["tidal_fallbacks"]:
-            st.warning("⚠️ Τα παρακάτω τραγούδια δεν βρέθηκαν στο Tidal (χρησιμοποιήθηκαν καλλιτέχνες Spotify αντί για credits):")
-            for title in report["tidal_fallbacks"]:
-                st.write(f"- **{title}**")
+            # Χρήση expander για να μην πιάνει τεράστιο χώρο στην οθόνη αν υπάρχουν δεκάδες fallbacks
+            with st.expander("⚠️ Τραγούδια που δεν βρέθηκαν στο Tidal (Χρήση Spotify credits)"):
+                for title in report["tidal_fallbacks"]:
+                    st.write(f"- **{title}**")
 
         if ipi_lookup:
             st.info(f"Έγιναν {report['ipi_matches']} αντιστοιχίσεις IPI/PRO στο Excel.")
 
-        output_filename = make_catalog_filename(selected_playlist["name"])
+        output_filename = make_catalog_filename(catalog_filename_base)
         st.download_button(
             label="⬇️ Λήψη Excel",
             data=buffer,
             file_name=output_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-    except requests.HTTPError as e:
-        st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
     except Exception as e:
-        st.error(f"Κάτι πήγε στραβά: {e}")
+        st.error(f"Σφάλμα κατά τη δημιουργία του Excel: {e}")
