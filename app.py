@@ -164,10 +164,13 @@ def extract_playlist_id(playlist_arg):
     return playlist_arg.strip()
 
 def extract_artist_id(artist_arg):
-    m = re.search(r"artist[/:]([a-zA-Z0-9]+)", artist_arg)
+    # Καθαρισμός του URL από τα ?si=... και τα query params
+    clean_arg = str(artist_arg).split("?")[0].split("&")[0].strip()
+    m = re.search(r"artist[/:]([a-zA-Z0-9]+)", clean_arg)
     if m:
-        return m.group(1).split("?")[0]
-    return artist_arg.strip()
+        return m.group(1)
+    # Εφεδρικό fallback: σε περίπτωση που γίνει επικόλληση σκέτου ID
+    return clean_arg.split("/")[-1].split(":")[-1]
 
 def _api_get(token, url, params=None, retries=3):
     headers = {"Authorization": f"Bearer {token}"}
@@ -177,7 +180,17 @@ def _api_get(token, url, params=None, retries=3):
             wait = int(resp.headers.get("Retry-After", 2))
             time.sleep(wait)
             continue
-        resp.raise_for_status()
+        
+        if not resp.ok:
+            # Αντικαθιστά το γενικό HTTPError με το συγκεκριμένο μήνυμα λάθους του Spotify
+            try:
+                err_msg = resp.json().get("error", {}).get("message", "")
+                if err_msg:
+                    raise RuntimeError(f"Spotify API Error ({resp.status_code}): {err_msg} - URL: {url}")
+            except ValueError:
+                pass
+            resp.raise_for_status()
+            
         return resp.json()
     resp.raise_for_status()
 
@@ -251,7 +264,9 @@ def fetch_artist_albums(token, artist_id):
     while url:
         data = _api_get(token, url, params=params)
         for item in data.get("items", []):
-            albums.add(item["id"])
+            aid = item.get("id")
+            if aid and aid != "null":  # Προστασία από null IDs
+                albums.add(aid)
         url = data.get("next")
         params = None
     return list(albums)
@@ -259,20 +274,34 @@ def fetch_artist_albums(token, artist_id):
 def fetch_tracks_from_albums(token, album_ids):
     """Ανάκτηση όλων των Track IDs από λίστα με Albums (Σε chunks των 20)"""
     track_ids = set()
-    for i in range(0, len(album_ids), 20):
-        chunk = album_ids[i:i+20]
+    # Αυστηρό φιλτράρισμα άκυρων IDs
+    valid_album_ids = [aid for aid in album_ids if aid and isinstance(aid, str) and aid != "null"]
+    
+    for i in range(0, len(valid_album_ids), 20):
+        chunk = valid_album_ids[i:i+20]
+        if not chunk: continue
+        
         data = _api_get(token, "https://api.spotify.com/v1/albums", params={"ids": ",".join(chunk)})
         for album in data.get("albums", []):
             if not album: continue
-            for track in album.get("tracks", {}).get("items", []):
-                track_ids.add(track["id"])
+            
+            for track in (album.get("tracks") or {}).get("items", []):
+                tid = track.get("id")
+                if tid and tid != "null":  # Προστασία από local tracks / null
+                    track_ids.add(tid)
+                    
     return list(track_ids)
 
 def fetch_full_tracks(token, track_ids):
     """Ανάκτηση πλήρων Track details (για να πάρουμε ISRC) σε chunks των 50"""
     tracks = []
-    for i in range(0, len(track_ids), 50):
-        chunk = track_ids[i:i+50]
+    # Αυστηρό φιλτράρισμα άκυρων IDs
+    valid_track_ids = [tid for tid in track_ids if tid and isinstance(tid, str) and tid != "null"]
+    
+    for i in range(0, len(valid_track_ids), 50):
+        chunk = valid_track_ids[i:i+50]
+        if not chunk: continue
+        
         data = _api_get(token, "https://api.spotify.com/v1/tracks", params={"ids": ",".join(chunk)})
         for track in data.get("tracks", []):
             if not track: continue
@@ -283,6 +312,7 @@ def fetch_full_tracks(token, track_ids):
                 "artists": [a["name"] for a in track.get("artists", [])],
                 "isrc": isrc
             })
+            
     return tracks
 
 def deduplicate_tracks(tracks):
@@ -888,6 +918,9 @@ if source_mode == "Playlist (Από τον λογαριασμό σας)":
     except requests.HTTPError as e:
         st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
         st.stop()
+    except Exception as e:
+        st.error(f"Κάτι πήγε στραβά: {e}")
+        st.stop()
 
     if not playlists:
         st.warning("Δεν βρέθηκαν playlists στο λογαριασμό σας.")
@@ -902,8 +935,6 @@ if source_mode == "Playlist (Από τον λογαριασμό σας)":
             with st.spinner("Ανάκτηση τραγουδιών από Spotify Playlist..."):
                 tracks_to_process = fetch_playlist_tracks(token, selected_playlist["id"])
             catalog_filename_base = selected_playlist["name"]
-        except requests.HTTPError as e:
-            st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
         except Exception as e:
             st.error(f"Κάτι πήγε στραβά: {e}")
 
@@ -946,8 +977,6 @@ else: # Προφίλ Καλλιτέχνη
                 
                 status_placeholder.empty()
 
-        except requests.HTTPError as e:
-            st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
         except Exception as e:
             st.error(f"Κάτι πήγε στραβά κατά τη σάρωση: {e}")
 
