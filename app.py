@@ -31,6 +31,7 @@ import unicodedata
 import urllib.parse
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 
 import openpyxl
 import requests
@@ -644,12 +645,29 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
         "ipi_matches": 0,
     }
 
+    # --- Ορισμός Στυλ (Γραμματοσειρές, Στοιχίσεις, Χρώματα, Περιγράμματα) ---
+    header_font = Font(bold=True)
+    center_alignment = Alignment(horizontal="center", vertical="center")
+    top_alignment = Alignment(vertical="top", wrap_text=True)
+
+    # Πιο έντονο μαύρο περίγραμμα (medium style)
+    black_border = Border(
+        left=Side(style='medium', color='000000'),
+        right=Side(style='medium', color='000000'),
+        top=Side(style='medium', color='000000'),
+        bottom=Side(style='medium', color='000000')
+    )
+
+    # Γκρι γέμισμα για το διαχωριστικό κελί
+    gray_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+
     headers = ["TITLE", "ROLE", "WRITERS", "ISRC", "IPI", "PRO", "NOTES"]
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_num)
         cell.value = header
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.font = header_font
+        cell.alignment = center_alignment
+        cell.border = black_border
 
     ws.freeze_panes = "A2"
     ws.column_dimensions["A"].width = 35
@@ -705,18 +723,19 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
         contributor_rows = _build_contributor_rows(contributor_names, ipi_lookup)
         report["ipi_matches"] += sum(1 for row in contributor_rows if row["matched"])
 
-        needed_rows = max(6, len(contributor_rows))
+        # Δημιουργούμε ακριβώς όσες γραμμές χρειάζονται για τους writers
+        needed_rows = max(1, len(contributor_rows))
         notes_text = "; ".join(dict.fromkeys(note for note in notes if note))
 
         for i in range(needed_rows):
             current_row = insert_at + i
 
-            if i == 0:
-                ws.cell(row=current_row, column=1).value = title
-                if isrc:
-                    ws.cell(row=current_row, column=4).value = isrc
-                if notes_text:
-                    ws.cell(row=current_row, column=7).value = notes_text
+            # Επαναλαμβάνουμε TITLE, ISRC και NOTES σε ΚΑΘΕ γραμμή του πλαισίου
+            ws.cell(row=current_row, column=1).value = title
+            if isrc:
+                ws.cell(row=current_row, column=4).value = isrc
+            if notes_text:
+                ws.cell(row=current_row, column=7).value = notes_text
 
             if i < len(contributor_rows):
                 contributor = contributor_rows[i]
@@ -730,22 +749,30 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
                 if contributor["pro"]:
                     ws.cell(row=current_row, column=6).value = contributor["pro"]
 
+            # Εφαρμογή του μαύρου περιγράμματος σε όλα τα κελιά της τρέχουσας γραμμής
             for col_num in range(1, 8):
-                ws.cell(row=current_row, column=col_num).alignment = Alignment(
-                    vertical="top",
-                    wrap_text=True,
-                )
+                cell = ws.cell(row=current_row, column=col_num)
+                cell.alignment = top_alignment
+                cell.border = black_border
+
+        # --- Προσθήκη Γκρι Διαχωριστικής Γραμμής ---
+        separator_row = insert_at + needed_rows
+        for col_num in range(1, 8):
+            cell = ws.cell(row=separator_row, column=col_num)
+            cell.fill = gray_fill
+            cell.border = black_border
 
         report["filled"].append(
             {
                 "title": title,
-                "contributors": [row["writer"] for row in contributor_rows],
+                "contributors": [row["writer"] for row in contributor_rows] if contributor_rows else [],
                 "isrc": isrc,
                 "source": contributor_source,
                 "notes": notes_text,
             }
         )
 
+        # Το επόμενο τραγούδι ξεκινά μετά το block των writers + 1 γραμμή για το διαχωριστικό
         insert_at += needed_rows + 1
 
     buffer = io.BytesIO()
