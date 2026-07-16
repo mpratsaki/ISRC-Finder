@@ -799,10 +799,10 @@ def make_catalog_filename(playlist_name):
 # Streamlit UI
 # --------------------------------------------------------------------------
 # Για το εικονίδιο πάνω στην καρτέλα του browser βάζεις το όνομα του αρχείου
-st.set_page_config(page_title="Stay Independent Catalog Generator", page_icon="StayLogo2.png")
+st.set_page_config(page_title="Stay Independent Catalog Generator", page_icon="StayLogo2.jpg")
 
 # Για να εμφανιστεί το λογότυπο μέσα στη σελίδα
-st.image("StayLogo2.png", width=200) # Μπορείς να αλλάξεις το width (πλάτος) για να φαίνεται στο μέγεθος που θες
+st.image("StayLogo2.jpg", width=200) # Μπορείς να αλλάξεις το width (πλάτος) για να φαίνεται στο μέγεθος που θες
 
 # Ο τίτλος πλέον καθαρός, χωρίς τη νότα
 st.title("Stay Independent Catalog Generator")
