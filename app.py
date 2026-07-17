@@ -888,7 +888,8 @@ if token:
 # --- Sidebar UI & Navigation Menu ---
 with st.sidebar:
     if os.path.exists("StayLogo2.jpg"):
-        st.image("StayLogo2.jpg", use_container_width=True) # Διόρθωσα το .png σε .jpg βάσει του page_icon σου
+        # Χρησιμοποίησε το use_column_width="always" αντί για use_container_width
+        st.image("StayLogo2.jpg", use_column_width="always") 
     else:
         st.markdown("## 🎵 Stay Independent")
     
@@ -908,7 +909,7 @@ with st.sidebar:
         )
         st.divider()
         
-        if st.button("Αποσύνδεση", use_container_width=True):
+        if st.button("Αποσύνδεση", width="stretch"):
             st.session_state.pop("token_data", None)
             st.rerun()
     else:
