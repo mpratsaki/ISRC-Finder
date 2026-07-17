@@ -875,10 +875,11 @@ if token:
 
 # --- Sidebar UI ---
 with st.sidebar:
+    # Διορθώθηκε ώστε και οι δύο εντολές να δείχνουν στο .jpg
     if os.path.exists("StayLogo2.jpg"):
-        st.image("StayLogo2.png", use_container_width=True)
+        st.image("StayLogo2.jpg", use_container_width=True)
     else:
-        st.markdown("## 🎵 Stay Independent")
+        st.markdown("## Stay Independent")
     
     st.markdown("### Stay Independent\n*Catalog Generator*")
     st.divider()
