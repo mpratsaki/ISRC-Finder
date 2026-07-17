@@ -4,41 +4,37 @@ app.py
 Stay Independent Tool - The Stay Independent Catalog Utility
 Streamlit web version (Playlist-to-Excel Generator)
 
-Version update:
-- Adds Tidal ISRC credits lookup for songwriter/producer contributors, with
-  Spotify main artists as a safe fallback.
-- Loads the IPI LIST ground-truth Excel automatically from a private GitHub
-  repository using Streamlit secrets, so users do not upload sensitive files.
-- Adds nickname/legal-name/IPI/PRO matching from the private IPI LIST.
-- Updates the catalog export to TITLE / ROLE / WRITERS / ISRC / IPI / PRO / NOTES.
-- Rebranded to "Stay Independent Tool" with a dedicated centered landing/login
-  page (sidebar hidden until the user authenticates).
+Version 2.0 - "Swiss Army Knife Edition"
+- Modular, state-based page routing (each page is a standalone function).
+- Scalable custom sidebar navigation with active-page highlighting.
+- New tools: Musixmatch Sync Checker, Metadata Health, Smart Links (Odesli),
+  MusicBrainz Explorer (under development), Settings.
+- Backend logic (Spotify auth, Tidal ISRC lookup, private IPI LIST loading,
+  Supabase queries, Excel generation) is UNCHANGED.
 
 IMPORTANT (post Feb-2026 Spotify API changes):
 Spotify no longer returns playlist contents via Client Credentials, and even
 with a logged-in user, playlist items are only returned for playlists that
 user OWNS or COLLABORATES ON. So this app makes each visitor log in with
 their own Spotify account, and lets them pick from THEIR playlists only.
-
-Spotify also currently caps unverified ("Development Mode") apps to 5
-authorized Spotify accounts total - add testers in the app's dashboard under
-"User Management" if you need more than yourself using it.
 """
 
 import base64
 import io
+import os
 import re
 import time
 import unicodedata
 import urllib.parse
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 
 import openpyxl
+import pandas as pd
 import requests
 import streamlit as st
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
+from supabase import create_client, Client
 
 SCOPE = "playlist-read-private playlist-read-collaborative"
 
@@ -65,6 +61,8 @@ TIDAL_EXCLUDED_ROLE_KEYS = {
 GITHUB_API_VERSION = "2022-11-28"
 GITHUB_CONTENTS_TIMEOUT_SECONDS = 20
 IPI_LIST_CACHE_TTL_SECONDS = 15 * 60
+
+APP_VERSION = "Stay Independent Tool v2.0 - Swiss Army Knife Edition"
 
 
 # --------------------------------------------------------------------------
@@ -651,7 +649,7 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
     header_font = Font(bold=True)
     center_alignment = Alignment(horizontal="center", vertical="center")
     top_alignment = Alignment(vertical="top", wrap_text=True)
-    sum_font = Font(bold=True, color="000000") # Έντονη γραφή για το άθροισμα
+    sum_font = Font(bold=True, color="000000")  # Έντονη γραφή για το άθροισμα
 
     # Πιο έντονο μαύρο περίγραμμα (medium style)
     black_border = Border(
@@ -742,21 +740,21 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
             ws.cell(row=current_row, column=1).value = title
 
             if isrc:
-                ws.cell(row=current_row, column=7).value = isrc # Το ISRC πήγε στη στήλη 7 (G)
+                ws.cell(row=current_row, column=7).value = isrc  # Το ISRC πήγε στη στήλη 7 (G)
             if notes_text:
-                ws.cell(row=current_row, column=8).value = notes_text # Τα NOTES πήγαν στη στήλη 8 (H)
+                ws.cell(row=current_row, column=8).value = notes_text  # Τα NOTES πήγαν στη στήλη 8 (H)
 
             if i < len(contributor_rows):
                 contributor = contributor_rows[i]
-                ws.cell(row=current_row, column=3).value = contributor["writer"] # Το WRITERS μένει στήλη 3 (C)
+                ws.cell(row=current_row, column=3).value = contributor["writer"]  # WRITERS στήλη 3 (C)
 
                 if contributor["ipi"] is not None:
-                    ipi_cell = ws.cell(row=current_row, column=4) # Το IPI πήγε στη στήλη 4 (D)
+                    ipi_cell = ws.cell(row=current_row, column=4)  # IPI στήλη 4 (D)
                     ipi_cell.value = contributor["ipi"]
                     ipi_cell.number_format = "0"
 
                 if contributor["pro"]:
-                    ws.cell(row=current_row, column=5).value = contributor["pro"] # Το PRO πήγε στη στήλη 5 (E)
+                    ws.cell(row=current_row, column=5).value = contributor["pro"]  # PRO στήλη 5 (E)
 
             # Εφαρμογή του μαύρου περιγράμματος σε όλα τα 8 κελιά της τρέχουσας γραμμής
             for col_num in range(1, 9):
@@ -809,18 +807,19 @@ def make_catalog_filename(playlist_name):
     date_part = datetime.now().strftime("%Y%m%d")
     return f"Catalog_{safe_name}_{date_part}.xlsx"
 
-# --------------------------------------------------------------------------
-# Streamlit UI - Rich & Interactive
-# --------------------------------------------------------------------------
-import pandas as pd
-import os
-from supabase import create_client, Client
+
+# ==========================================================================
+# ==========================================================================
+#  STREAMLIT UI LAYER (Swiss Army Knife Edition)
+#  Backend above is untouched. Everything below is presentation / routing.
+# ==========================================================================
+# ==========================================================================
 
 st.set_page_config(
     page_title="Stay Independent Tool",
     page_icon="StayLogo2.jpg",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # --- Ενσωμάτωση Custom CSS ---
@@ -845,10 +844,31 @@ st.markdown("""
     .block-container {
         padding-top: 2rem;
     }
+    .under-construction {
+        padding: 40px 25px;
+        border-radius: 14px;
+        text-align: center;
+        background: repeating-linear-gradient(
+            45deg, #2b2b2b, #2b2b2b 18px, #242424 18px, #242424 36px
+        );
+        border: 2px dashed #FFB020;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+        margin-bottom: 25px;
+    }
+    .under-construction h2 { color:#FFB020; margin-bottom:8px; }
+    .under-construction p  { color:#ddd; font-size:16px; }
+    /* Try to give the sidebar a column layout so the system block can sit lower */
+    section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
+        display: flex;
+        flex-direction: column;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- Supabase Initialization ---
+
+# --------------------------------------------------------------------------
+# Shared resources / helpers
+# --------------------------------------------------------------------------
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets.get("SUPABASE_URL")
@@ -857,103 +877,95 @@ def init_supabase() -> Client:
         return create_client(url, key)
     return None
 
+
 def fetch_current_user(token):
     data = _api_get(token, "https://api.spotify.com/v1/me")
     return data.get("display_name") or data.get("id") or "Άγνωστος Χρήστης"
 
-client_id, client_secret, redirect_uri = get_config()
 
-# --- Auth Callback Handling ---
-query_params = st.query_params
-if "error" in query_params:
-    st.error(f"Η σύνδεση με το Spotify απέτυχε: {query_params['error']}")
-    st.query_params.clear()
-elif "code" in query_params and "token_data" not in st.session_state:
-    try:
-        token_data = exchange_code_for_token(client_id, client_secret, redirect_uri, query_params["code"])
-        st.session_state["token_data"] = token_data
-        st.toast("Επιτυχής σύνδεση στο Spotify!", icon="✅")
-    except requests.HTTPError as e:
-        st.error(f"Σφάλμα κατά την ανταλλαγή του code: {e}")
-    st.query_params.clear()
-    st.rerun()
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_odesli_links(track_url):
+    """
+    Calls the free Odesli (song.link) API and returns the parsed JSON.
+    GET https://api.odesli.co/v1-alpha.1/links?url=<encoded url>
+    """
+    resp = requests.get(
+        "https://api.odesli.co/v1-alpha.1/links",
+        params={"url": track_url},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
-token = get_valid_token()
-spotify_user = None
 
-if token:
-    try:
-        spotify_user = fetch_current_user(token)
-    except Exception:
-        spotify_user = "Άγνωστος Χρήστης"
+def _scan_ipi_health(ipi_lookup):
+    """
+    Deduplicates the IPI lookup by legal name and reports entries that are
+    missing an IPI number or a PRO affiliation. Returns (total, problems).
+    """
+    seen = set()
+    total = 0
+    problems = []
+    for entry in ipi_lookup.values():
+        legal = (entry.get("legal") or "").strip()
+        key = legal.lower()
+        if not legal or key in seen:
+            continue
+        seen.add(key)
+        total += 1
 
-selected_menu = None
+        missing = []
+        if entry.get("ipi") is None:
+            missing.append("IPI")
+        if not (entry.get("pro") or "").strip():
+            missing.append("PRO")
 
-# ==============================================================================
-# LANDING / LOGIN PAGE (no sidebar, centered) - shown only when logged out
-# ==============================================================================
-if not token:
+        if missing:
+            problems.append({
+                "Writer": legal,
+                "IPI": entry.get("ipi") if entry.get("ipi") is not None else "—",
+                "PRO": entry.get("pro") or "—",
+                "Πρόβλημα": ", ".join(f"Missing {m}" for m in missing),
+            })
+    return total, problems
+
+
+# ==========================================================================
+# PAGE: Landing / Login (no sidebar, centered) - logged-out state
+# ==========================================================================
+def render_landing_page(client_id, redirect_uri):
     st.markdown("<br><br>", unsafe_allow_html=True)
-    col_left, col_center, col_right = st.columns([1, 2, 1])
 
-    with col_center:
+    # Smaller, aesthetically balanced logo via a narrow center column.
+    logo_left, logo_center, logo_right = st.columns([4, 2, 4])
+    with logo_center:
         if os.path.exists("StayLogo2.jpg"):
             st.image("StayLogo2.jpg", width="stretch")
 
-        st.markdown(
-            "<h1 style='text-align:center;'>Stay Independent Tool</h1>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<p style='text-align:center; font-size:18px; color:#aaa;'>"
-            "Welcome to the Stay Independent multi-tool. Please log in with your "
-            "Spotify account to access the Catalog Generator and your Export History."
-            "</p>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        auth_url = build_authorize_url(client_id, redirect_uri)
-        _, btn_col, _ = st.columns([1, 2, 1])
-        with btn_col:
-            st.link_button("Σύνδεση με Spotify", auth_url, type="primary", width="stretch")
-
-    st.stop()
-
-# ==============================================================================
-# SIDEBAR UI & NAVIGATION MENU - shown only when logged in
-# ==============================================================================
-with st.sidebar:
-    if os.path.exists("StayLogo2.jpg"):
-        st.image("StayLogo2.jpg", width="stretch")
-    else:
-        st.markdown("## 🎵 Stay Independent Tool")
-
-    st.markdown("### Stay Independent Tool\n*Multi-tool*")
-    st.divider()
-
-    st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**")
-
-    st.markdown("Μενού")
-    selected_menu = st.radio(
-        "Επιλέξτε ενέργεια:",
-        ["Γεννήτρια Catalog", "Ιστορικό & Αρχεία", "Ρυθμίσεις (Προσεχώς)"],
-        label_visibility="collapsed"
+    st.markdown(
+        "<h1 style='text-align:center;'>Stay Independent Tool</h1>",
+        unsafe_allow_html=True,
     )
-    st.divider()
+    st.markdown(
+        "<p style='text-align:center; font-size:18px; color:#aaa;'>"
+        "Welcome to the Stay Independent multi-tool. Please log in with your "
+        "Spotify account to access the Catalog Generator and your Export History."
+        "</p>",
+        unsafe_allow_html=True,
+    )
 
-    if st.button("Αποσύνδεση", width="stretch"):
-        st.session_state.pop("token_data", None)
-        st.rerun()
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    st.divider()
-    st.caption("Stay Independent Tool © 2026")
+    auth_url = build_authorize_url(client_id, redirect_uri)
+    _, btn_col, _ = st.columns([1, 2, 1])
+    with btn_col:
+        st.link_button("Σύνδεση με Spotify", auth_url, type="primary", width="stretch")
 
-# ==============================================================================
-# ΣΕΛΙΔΑ 1: ΓΕΝΝΗΤΡΙΑ CATALOG
-# ==============================================================================
-if selected_menu == "Γεννήτρια Catalog":
+
+# ==========================================================================
+# PAGE: Γεννήτρια Catalog (main feature) - unchanged logic
+# ==========================================================================
+def page_catalog_generator(token, spotify_user):
     st.title("Γεννήτρια Catalog")
 
     # Φόρτωση IPI List
@@ -1025,7 +1037,7 @@ if selected_menu == "Γεννήτρια Catalog":
 
             output_filename = make_catalog_filename(selected_playlist["name"])
 
-# ΠΡΟΣΘΗΚΗ 2: Αποθήκευση στο Supabase Storage
+            # ΠΡΟΣΘΗΚΗ 2: Αποθήκευση στο Supabase Storage
             supabase = init_supabase()
             file_public_url = None
 
@@ -1052,7 +1064,7 @@ if selected_menu == "Γεννήτρια Catalog":
                         "spotify_user": spotify_user,
                         "playlist_name": selected_playlist["name"],
                         "track_count": len(tracks),
-                        "file_url": file_public_url # Η νέα στήλη
+                        "file_url": file_public_url  # Η νέα στήλη
                     }).execute()
 
                 except Exception as e:
@@ -1119,101 +1131,474 @@ if selected_menu == "Γεννήτρια Catalog":
             st.error(f"Μη αναμενόμενο σφάλμα κατά τη δημιουργία: {e}")
 
 
-# ==============================================================================
-# ΣΕΛΙΔΑ 2: ΙΣΤΟΡΙΚΟ & ΑΡΧΕΙΑ
-# ==============================================================================
-elif selected_menu == "Ιστορικό & Αρχεία":
+# ==========================================================================
+# PAGE: Ιστορικό & Αρχεία - unchanged logic
+# ==========================================================================
+def page_history(token, spotify_user):
     st.title("📂 Ιστορικό Εξαγωγών")
     st.markdown("Εδώ μπορείτε να δείτε τις προηγούμενες εξαγωγές σας, να κατεβάσετε τα αρχεία Excel, ή να τα διαγράψετε οριστικά.")
 
     supabase = init_supabase()
     if not supabase:
         st.warning("Το ιστορικό δεν είναι διαθέσιμο (Λείπουν τα credentials του Supabase στα Secrets).")
-    else:
-        try:
-            # Φέρνουμε τα δεδομένα - ΠΡΟΣΘΗΚΗ: φέρνουμε και το μοναδικό "id" της εγγραφής
-            response = supabase.table("export_history") \
-                .select("id, playlist_name, track_count, exported_at, file_url") \
-                .eq("spotify_user", spotify_user) \
-                .order("exported_at", desc=True) \
-                .execute()
+        return
 
-            if response.data:
-                df_history = pd.DataFrame(response.data)
-                df_history["exported_at"] = pd.to_datetime(df_history["exported_at"]).dt.tz_convert("Europe/Athens").dt.strftime("%d-%m-%Y %H:%M:%S")
+    try:
+        # Φέρνουμε τα δεδομένα - φέρνουμε και το μοναδικό "id" της εγγραφής
+        response = supabase.table("export_history") \
+            .select("id, playlist_name, track_count, exported_at, file_url") \
+            .eq("spotify_user", spotify_user) \
+            .order("exported_at", desc=True) \
+            .execute()
 
-                # Προσθέτουμε μια προσωρινή στήλη (Checkbox) στην αρχή του Dataframe
-                df_history.insert(0, "Επιλογή", False)
+        if response.data:
+            df_history = pd.DataFrame(response.data)
+            df_history["exported_at"] = pd.to_datetime(df_history["exported_at"]).dt.tz_convert("Europe/Athens").dt.strftime("%d-%m-%Y %H:%M:%S")
 
-                st.markdown("### Λίστα Αρχείων")
-                st.caption("Επιλέξτε το κουτάκι αριστερά από τις εγγραφές που θέλετε να διαγράψετε.")
+            # Προσθέτουμε μια προσωρινή στήλη (Checkbox) στην αρχή του Dataframe
+            df_history.insert(0, "Επιλογή", False)
 
-                # Χρήση data_editor για διαδραστικότητα
-                edited_df = st.data_editor(
-                    df_history,
-                    width="stretch",
-                    hide_index=True,
-                    column_config={
-                        "id": None, # Κρύβουμε το ID από τον χρήστη για να είναι καθαρό το UI
-                        "Επιλογή": st.column_config.CheckboxColumn("Διαγραφή;", default=False),
-                        "playlist_name": st.column_config.TextColumn("Τίτλος Playlist", disabled=True),
-                        "track_count": st.column_config.NumberColumn("Τραγούδια", disabled=True),
-                        "exported_at": st.column_config.TextColumn("Ημερομηνία & Ώρα", disabled=True),
-                        "file_url": st.column_config.LinkColumn(
-                            "Αρχείο Excel",
-                            help="Πατήστε για να κατεβάσετε το αρχείο",
-                            display_text="Κατέβασμα 📥",
-                            disabled=True
-                        )
-                    }
-                )
+            st.markdown("### Λίστα Αρχείων")
+            st.caption("Επιλέξτε το κουτάκι αριστερά από τις εγγραφές που θέλετε να διαγράψετε.")
 
-                # Εντοπισμός των γραμμών που ο χρήστης τσέκαρε
-                rows_to_delete = edited_df[edited_df["Επιλογή"] == True]
+            # Χρήση data_editor για διαδραστικότητα
+            edited_df = st.data_editor(
+                df_history,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "id": None,  # Κρύβουμε το ID από τον χρήστη για να είναι καθαρό το UI
+                    "Επιλογή": st.column_config.CheckboxColumn("Διαγραφή;", default=False),
+                    "playlist_name": st.column_config.TextColumn("Τίτλος Playlist", disabled=True),
+                    "track_count": st.column_config.NumberColumn("Τραγούδια", disabled=True),
+                    "exported_at": st.column_config.TextColumn("Ημερομηνία & Ώρα", disabled=True),
+                    "file_url": st.column_config.LinkColumn(
+                        "Αρχείο Excel",
+                        help="Πατήστε για να κατεβάσετε το αρχείο",
+                        display_text="Κατέβασμα 📥",
+                        disabled=True
+                    )
+                }
+            )
 
-                if not rows_to_delete.empty:
-                    st.warning(f"Έχετε επιλέξει {len(rows_to_delete)} αρχεία προς διαγραφή. Η ενέργεια δεν αναιρείται.")
+            # Εντοπισμός των γραμμών που ο χρήστης τσέκαρε
+            rows_to_delete = edited_df[edited_df["Επιλογή"] == True]
 
-                    if st.button("🗑️ Οριστική Διαγραφή Επιλεγμένων", type="primary"):
-                        with st.spinner("Διαγραφή σε εξέλιξη..."):
-                            success_count = 0
+            if not rows_to_delete.empty:
+                st.warning(f"Έχετε επιλέξει {len(rows_to_delete)} αρχεία προς διαγραφή. Η ενέργεια δεν αναιρείται.")
 
-                            for _, row in rows_to_delete.iterrows():
-                                record_id = row["id"]
-                                file_url = row["file_url"]
+                if st.button("🗑️ Οριστική Διαγραφή Επιλεγμένων", type="primary"):
+                    with st.spinner("Διαγραφή σε εξέλιξη..."):
+                        success_count = 0
 
-                                # Βήμα 1: Διαγραφή του αρχείου από το Supabase Storage
-                                if file_url:
-                                    try:
-                                        # Το URL είναι της μορφής: .../public/catalogs/User/1234_File.xlsx
-                                        # Το κόβουμε για να πάρουμε μόνο το "User/1234_File.xlsx"
-                                        if "/public/catalogs/" in file_url:
-                                            storage_path = file_url.split("/public/catalogs/")[-1]
-                                            # Προσοχή: Η remove δέχεται λίστα με paths
-                                            supabase.storage.from_("catalogs").remove([storage_path])
-                                    except Exception as e:
-                                        st.error(f"Αδυναμία διαγραφής αρχείου από το Storage: {e}")
+                        for _, row in rows_to_delete.iterrows():
+                            record_id = row["id"]
+                            file_url = row["file_url"]
 
-                                # Βήμα 2: Διαγραφή της εγγραφής από τη βάση δεδομένων (Table)
+                            # Βήμα 1: Διαγραφή του αρχείου από το Supabase Storage
+                            if file_url:
                                 try:
-                                    supabase.table("export_history").delete().eq("id", record_id).execute()
-                                    success_count += 1
+                                    # Το URL είναι της μορφής: .../public/catalogs/User/1234_File.xlsx
+                                    # Το κόβουμε για να πάρουμε μόνο το "User/1234_File.xlsx"
+                                    if "/public/catalogs/" in file_url:
+                                        storage_path = file_url.split("/public/catalogs/")[-1]
+                                        # Προσοχή: Η remove δέχεται λίστα με paths
+                                        supabase.storage.from_("catalogs").remove([storage_path])
                                 except Exception as e:
-                                    st.error(f"Αδυναμία διαγραφής εγγραφής {record_id} από τη βάση: {e}")
+                                    st.error(f"Αδυναμία διαγραφής αρχείου από το Storage: {e}")
 
-                            if success_count > 0:
-                                st.success(f"Διαγράφηκαν επιτυχώς {success_count} εγγραφές/αρχεία!")
-                                time.sleep(1.5) # Μικρή παύση για να προλάβει ο χρήστης να διαβάσει το μήνυμα
-                                st.rerun() # Ανανέωση της σελίδας για να ενημερωθεί ο πίνακας
-            else:
-                st.info("Δεν υπάρχει ιστορικό εξαγωγών για τον λογαριασμό σας.")
+                            # Βήμα 2: Διαγραφή της εγγραφής από τη βάση δεδομένων (Table)
+                            try:
+                                supabase.table("export_history").delete().eq("id", record_id).execute()
+                                success_count += 1
+                            except Exception as e:
+                                st.error(f"Αδυναμία διαγραφής εγγραφής {record_id} από τη βάση: {e}")
+
+                        if success_count > 0:
+                            st.success(f"Διαγράφηκαν επιτυχώς {success_count} εγγραφές/αρχεία!")
+                            time.sleep(1.5)  # Μικρή παύση για να προλάβει ο χρήστης να διαβάσει το μήνυμα
+                            st.rerun()  # Ανανέωση της σελίδας για να ενημερωθεί ο πίνακας
+        else:
+            st.info("Δεν υπάρχει ιστορικό εξαγωγών για τον λογαριασμό σας.")
+    except Exception as e:
+        st.error(f"Αδυναμία ανάκτησης ιστορικού: {e}")
+
+
+# ==========================================================================
+# TOOL A: Musixmatch Sync Checker (placeholder UI)
+# ==========================================================================
+def page_musixmatch_checker():
+    st.title("🎤 Musixmatch Sync Checker")
+    st.caption(
+        "Έλεγχος διαθεσιμότητας synced / unsynced lyrics ανά ISRC. "
+        "**Demo UI** — τα δεδομένα είναι placeholder μέχρι να συνδεθεί το Musixmatch API."
+    )
+
+    mode = st.radio("Λειτουργία εισαγωγής", ["Μονό ISRC", "Πολλαπλά ISRCs"], horizontal=True)
+
+    isrcs = []
+    if mode == "Μονό ISRC":
+        single = st.text_input("ISRC", placeholder="π.χ. USRC17607839")
+        if single.strip():
+            isrcs = [single.strip().upper()]
+    else:
+        multi = st.text_area(
+            "ISRCs (ένα ανά γραμμή)",
+            height=160,
+            placeholder="USRC17607839\nGBUM71029604\nGRA123456789",
+        )
+        isrcs = [line.strip().upper() for line in multi.splitlines() if line.strip()]
+
+    if st.button("Έλεγχος", type="primary", width="stretch"):
+        if not isrcs:
+            st.warning("Εισάγετε τουλάχιστον ένα ISRC για έλεγχο.")
+            return
+
+        total = len(isrcs)
+
+        # --- Placeholder split (dummy) ---
+        synced = round(total * 0.62)
+        missing = round(total * 0.15)
+        unsynced = max(total - synced - missing, 0)
+
+        st.divider()
+        st.markdown("### 📊 Αναφορά Συγχρονισμού (Demo)")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Σύνολο ISRCs", total)
+        c2.metric("Synced Lyrics", synced, delta="OK", delta_color="normal")
+        c3.metric("Unsynced", unsynced, delta="-λείπει timing", delta_color="inverse")
+        c4.metric("Missing", missing, delta="-χωρίς lyrics", delta_color="inverse")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        st.success(f"✅ {synced} κομμάτια έχουν πλήρως **synced** lyrics — έτοιμα για karaoke/social clips.")
+        if unsynced:
+            st.warning(f"⚠️ {unsynced} κομμάτια έχουν lyrics αλλά **χωρίς time-sync** — χρειάζονται alignment.")
+        if missing:
+            st.error(f"❌ {missing} κομμάτια **δεν έχουν καθόλου lyrics** στο Musixmatch — απαιτείται upload.")
+
+        st.divider()
+        st.caption("Δείγμα αναλυτικού πίνακα (placeholder):")
+        demo_rows = []
+        statuses = (["Synced"] * synced) + (["Unsynced"] * unsynced) + (["Missing"] * missing)
+        for isrc, status in zip(isrcs, statuses + ["Synced"] * total):
+            demo_rows.append({
+                "ISRC": isrc,
+                "Έγκυρο;": "✅" if validate_isrc(isrc) else "❌",
+                "Κατάσταση": status,
+                "Γλώσσα": "—",
+            })
+        st.dataframe(pd.DataFrame(demo_rows), width="stretch", hide_index=True)
+
+
+# ==========================================================================
+# TOOL B: Metadata Health Dashboard
+# ==========================================================================
+def page_metadata_health():
+    st.title("🩺 Metadata Health Dashboard")
+    st.caption("Επισκόπηση της ποιότητας του IPI LIST — εντοπίστε writers χωρίς IPI ή PRO.")
+
+    total = None
+    problems = None
+
+    # Try to compute REAL metrics from the private IPI LIST; fall back to demo.
+    try:
+        private_ipi_config = get_private_ipi_config()
+        with st.spinner("Ανάλυση IPI LIST..."):
+            ipi_file_bytes = fetch_private_ipi_list_bytes(**private_ipi_config)
+            ipi_lookup, _ = build_ipi_lookup_from_bytes(ipi_file_bytes)
+        total, problems = _scan_ipi_health(ipi_lookup)
+        data_is_live = True
+    except Exception as e:
+        st.info("Χρήση demo δεδομένων (δεν φορτώθηκε το ζωντανό IPI LIST).")
+        st.caption(f"Λεπτομέρεια: {e}")
+        data_is_live = False
+        total = 128
+        problems = [
+            {"Writer": "Nikos Papadopoulos", "IPI": "—", "PRO": "AEPI", "Πρόβλημα": "Missing IPI"},
+            {"Writer": "Maria K.", "IPI": 250123456, "PRO": "—", "Πρόβλημα": "Missing PRO"},
+            {"Writer": "John Doe", "IPI": "—", "PRO": "—", "Πρόβλημα": "Missing IPI, Missing PRO"},
+        ]
+
+    missing_ipi = sum(1 for p in problems if "Missing IPI" in p["Πρόβλημα"])
+    missing_pro = sum(1 for p in problems if "Missing PRO" in p["Πρόβλημα"])
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Σύνολο Writers στη βάση", total)
+    m2.metric("Missing IPIs", missing_ipi, delta=f"-{missing_ipi}" if missing_ipi else "0",
+              delta_color="inverse" if missing_ipi else "off")
+    m3.metric("Missing PROs", missing_pro, delta=f"-{missing_pro}" if missing_pro else "0",
+              delta_color="inverse" if missing_pro else "off")
+
+    st.divider()
+
+    if problems:
+        st.warning(f"Βρέθηκαν {len(problems)} writers με ελλιπή metadata — χρειάζονται διόρθωση.")
+        st.dataframe(
+            pd.DataFrame(problems),
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Writer": st.column_config.TextColumn("Writer"),
+                "IPI": st.column_config.TextColumn("IPI"),
+                "PRO": st.column_config.TextColumn("PRO"),
+                "Πρόβλημα": st.column_config.TextColumn("Πρόβλημα"),
+            },
+        )
+    else:
+        st.success("🎉 Όλοι οι writers έχουν πλήρη IPI & PRO metadata!")
+
+    if data_is_live:
+        st.caption("Τα παραπάνω προέρχονται από το ζωντανό IPI LIST (private GitHub).")
+
+
+# ==========================================================================
+# TOOL C: Smart Links Generator (real Odesli API)
+# ==========================================================================
+def page_smart_links():
+    st.title("🔗 Smart Links Generator")
+    st.caption("Δημιουργήστε universal links για όλες τις πλατφόρμες από ένα Spotify URL (μέσω Odesli).")
+
+    url_input = st.text_input(
+        "Spotify Track / Album URL",
+        placeholder="https://open.spotify.com/track/...",
+    )
+
+    if st.button("Δημιουργία Links", type="primary", width="stretch"):
+        clean_url = url_input.strip()
+        if not clean_url:
+            st.warning("Επικολλήστε ένα Spotify URL πρώτα.")
+            return
+
+        try:
+            with st.spinner("Επικοινωνία με το Odesli API..."):
+                data = fetch_odesli_links(clean_url)
+        except requests.HTTPError as e:
+            st.error(f"Το Odesli API απέρριψε το URL (HTTP {e.response.status_code}). "
+                     "Βεβαιωθείτε ότι είναι έγκυρο Spotify link.")
+            return
         except Exception as e:
-            st.error(f"Αδυναμία ανάκτησης ιστορικού: {e}")
+            st.error(f"Αποτυχία επικοινωνίας με το Odesli API: {e}")
+            return
+
+        links_by_platform = data.get("linksByPlatform") or {}
+
+        # Optional: nice header with the resolved track/artwork if available.
+        page_url = data.get("pageUrl")
+        entities = data.get("entitiesByUniqueId") or {}
+        unique_id = data.get("entityUniqueId")
+        entity = entities.get(unique_id, {}) if unique_id else {}
+        title = entity.get("title")
+        artist = entity.get("artistName")
+        thumb = entity.get("thumbnailUrl")
+
+        st.divider()
+        head_col1, head_col2 = st.columns([1, 4], vertical_alignment="center")
+        with head_col1:
+            if thumb:
+                st.image(thumb, width="stretch")
+        with head_col2:
+            if title:
+                st.markdown(f"### {title}")
+            if artist:
+                st.markdown(f"**{artist}**")
+            if page_url:
+                st.markdown(f"[🌐 Universal song.link σελίδα]({page_url})")
+
+        st.markdown("### Links ανά πλατφόρμα")
+
+        platforms = [
+            ("Spotify", "spotify"),
+            ("Apple Music", "appleMusic"),
+            ("Tidal", "tidal"),
+            ("YouTube", "youtube"),
+            ("Deezer", "deezer"),
+        ]
+
+        found_any = False
+        for label, key in platforms:
+            platform_data = links_by_platform.get(key)
+            if platform_data and platform_data.get("url"):
+                found_any = True
+                st.markdown(f"**{label}**")
+                st.code(platform_data["url"], language=None)  # st.code => built-in copy button
+            else:
+                st.markdown(f"**{label}** — _δεν βρέθηκε_")
+
+        if not found_any:
+            st.info("Δεν επιστράφηκαν links για αυτό το κομμάτι.")
 
 
-# ==============================================================================
-# ΣΕΛΙΔΑ 3: ΡΥΘΜΙΣΕΙΣ (ΠΡΟΣΕΧΩΣ)
-# ==============================================================================
-elif selected_menu == "Ρυθμίσεις (Προσεχώς)":
+# ==========================================================================
+# TOOL D: MusicBrainz Explorer (placeholder / under development)
+# ==========================================================================
+def page_musicbrainz():
+    st.title("🧬 MusicBrainz Explorer")
+
+    st.markdown(
+        """
+        <div class="under-construction">
+            <h2>🚧 Under Construction 🚧</h2>
+            <p>Deep metadata integration is on the way.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "Αυτό το εργαλείο θα συνδεθεί απευθείας με το **MusicBrainz** "
+        "(JSON/XML API & PostgreSQL δομή) για βαθιά queries metadata:"
+    )
+    st.markdown(
+        "- 📀 **Releases & Recordings** — άντληση όλων των εκδόσεων ενός κομματιού\n"
+        "- 👤 **Legal names & aliases** — επίσημα ονόματα δημιουργών\n"
+        "- 🔢 **ISRCs & barcodes** — cross-reference identifiers\n"
+        "- 🏷️ **Label details** — πληροφορίες δισκογραφικής\n"
+        "- 🔗 **Work relationships** — συσχετίσεις έργων, composers, arrangers"
+    )
+    st.info(
+        "Σύντομα θα μπορείτε να κάνετε deep queries κατευθείαν από την "
+        "open-source μουσική εγκυκλοπαίδεια, χωρίς χειροκίνητη έρευνα."
+    )
+
+
+# ==========================================================================
+# PAGE: Ρυθμίσεις (Settings)
+# ==========================================================================
+def page_settings(spotify_user):
     st.title("⚙️ Ρυθμίσεις")
-    st.info("Αυτή η ενότητα είναι υπό ανάπτυξη και θα είναι διαθέσιμη σύντομα.")
+
+    tab_data, tab_system = st.tabs(["Δεδομένα", "Σύστημα"])
+
+    with tab_data:
+        st.markdown("### Διαχείριση Cache")
+        st.caption(
+            "Το IPI LIST και άλλα δεδομένα αποθηκεύονται προσωρινά για ταχύτητα. "
+            "Καθαρίστε το cache αν ενημερώσατε το IPI LIST στο GitHub."
+        )
+        if st.button("🧹 Εκκαθάριση Προσωρινής Μνήμης (Clear Cache)", type="primary"):
+            st.cache_data.clear()
+            st.toast("Το cache καθαρίστηκε επιτυχώς!", icon="✅")
+            st.success("Η προσωρινή μνήμη εκκαθαρίστηκε. Τα δεδομένα θα φορτωθούν ξανά.")
+
+    with tab_system:
+        st.markdown("### Πληροφορίες Συστήματος")
+        st.text_input("Active Spotify User", value=spotify_user or "—", disabled=True)
+        st.text_input("Έκδοση", value=APP_VERSION, disabled=True)
+        st.caption("Stay Independent Tool © 2026")
+
+
+# ==========================================================================
+# SIDEBAR NAVIGATION (logged-in) - custom, state-based, highlighted
+# ==========================================================================
+def _nav_button(label, page_key):
+    """Renders a sidebar nav button; highlights the active page via type='primary'."""
+    is_active = st.session_state.get("current_page") == page_key
+    if st.sidebar.button(
+        label,
+        width="stretch",
+        type="primary" if is_active else "secondary",
+        key=f"nav_{page_key}",
+    ):
+        if not is_active:
+            st.session_state.current_page = page_key
+            st.rerun()
+
+
+def render_sidebar(spotify_user):
+    with st.sidebar:
+        if os.path.exists("StayLogo2.jpg"):
+            st.image("StayLogo2.jpg", width="stretch")
+        else:
+            st.markdown("## 🎵 Stay Independent Tool")
+
+        st.markdown("### Stay Independent Tool\n*Swiss Army Knife*")
+        st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**")
+        st.divider()
+
+    # --- Top section: Εργαλεία ---
+    st.sidebar.markdown("### 🛠️ Εργαλεία")
+    _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
+    _nav_button("Musixmatch Sync Checker", "Musixmatch Sync Checker")
+    _nav_button("Metadata Health", "Metadata Health")
+    _nav_button("Smart Links Generator", "Smart Links Generator")
+    _nav_button("MusicBrainz Explorer 🚧", "MusicBrainz Explorer")
+
+    # --- Spacer to push the System block lower ---
+    st.sidebar.markdown("<div style='height: 2.5rem'></div>", unsafe_allow_html=True)
+    st.sidebar.divider()
+
+    # --- Bottom section: Σύστημα ---
+    st.sidebar.markdown("### ⚙️ Σύστημα")
+    _nav_button("Ιστορικό & Αρχεία", "Ιστορικό & Αρχεία")
+    _nav_button("Ρυθμίσεις", "Ρυθμίσεις")
+
+    if st.sidebar.button("🚪 Αποσύνδεση", width="stretch", key="nav_logout"):
+        st.session_state.pop("token_data", None)
+        st.session_state.pop("current_page", None)
+        st.rerun()
+
+    st.sidebar.divider()
+    st.sidebar.caption("Stay Independent Tool © 2026")
+
+
+# ==========================================================================
+# MAIN APPLICATION FLOW
+# ==========================================================================
+client_id, client_secret, redirect_uri = get_config()
+
+# --- Auth Callback Handling ---
+query_params = st.query_params
+if "error" in query_params:
+    st.error(f"Η σύνδεση με το Spotify απέτυχε: {query_params['error']}")
+    st.query_params.clear()
+elif "code" in query_params and "token_data" not in st.session_state:
+    try:
+        token_data = exchange_code_for_token(client_id, client_secret, redirect_uri, query_params["code"])
+        st.session_state["token_data"] = token_data
+        st.toast("Επιτυχής σύνδεση στο Spotify!", icon="✅")
+    except requests.HTTPError as e:
+        st.error(f"Σφάλμα κατά την ανταλλαγή του code: {e}")
+    st.query_params.clear()
+    st.rerun()
+
+token = get_valid_token()
+
+# --- Logged-out: centered landing page, no sidebar ---
+if not token:
+    render_landing_page(client_id, redirect_uri)
+    st.stop()
+
+# --- Logged-in: resolve user, init routing state, render shell ---
+try:
+    spotify_user = fetch_current_user(token)
+except Exception:
+    spotify_user = "Άγνωστος Χρήστης"
+
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "Γεννήτρια Catalog"
+
+render_sidebar(spotify_user)
+
+# --- State-based router ---
+current_page = st.session_state.current_page
+
+if current_page == "Γεννήτρια Catalog":
+    page_catalog_generator(token, spotify_user)
+elif current_page == "Musixmatch Sync Checker":
+    page_musixmatch_checker()
+elif current_page == "Metadata Health":
+    page_metadata_health()
+elif current_page == "Smart Links Generator":
+    page_smart_links()
+elif current_page == "MusicBrainz Explorer":
+    page_musicbrainz()
+elif current_page == "Ιστορικό & Αρχεία":
+    page_history(token, spotify_user)
+elif current_page == "Ρυθμίσεις":
+    page_settings(spotify_user)
+else:
+    # Fallback safety net
+    st.session_state.current_page = "Γεννήτρια Catalog"
+    st.rerun()
