@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 app.py
-MMS Matrix - The Stay Independent Catalog Utility
+Stay Independent Tool - The Stay Independent Catalog Utility
 Streamlit web version (Playlist-to-Excel Generator)
 
 Version update:
@@ -11,6 +11,8 @@ Version update:
   repository using Streamlit secrets, so users do not upload sensitive files.
 - Adds nickname/legal-name/IPI/PRO matching from the private IPI LIST.
 - Updates the catalog export to TITLE / ROLE / WRITERS / ISRC / IPI / PRO / NOTES.
+- Rebranded to "Stay Independent Tool" with a dedicated centered landing/login
+  page (sidebar hidden until the user authenticates).
 
 IMPORTANT (post Feb-2026 Spotify API changes):
 Spotify no longer returns playlist contents via Client Credentials, and even
@@ -438,7 +440,7 @@ def fetch_private_ipi_list_bytes(owner, repo, path, ref, token):
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.raw+json",
         "X-GitHub-Api-Version": GITHUB_API_VERSION,
-        "User-Agent": "mms-matrix-catalog-generator",
+        "User-Agent": "stay-independent-catalog-generator",
     }
 
     response = requests.get(
@@ -728,7 +730,7 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
 
         needed_rows = max(1, len(contributor_rows))
         notes_text = "; ".join(dict.fromkeys(note for note in notes if note))
-        
+
         # Αποθηκεύουμε την αρχική και τελική γραμμή του τρέχοντος τραγουδιού για τη συνάρτηση SUM
         start_row = insert_at
         end_row = insert_at + needed_rows - 1
@@ -738,7 +740,7 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
 
             # Επαναλαμβάνουμε TITLE, ISRC και NOTES σε ΚΑΘΕ γραμμή του πλαισίου
             ws.cell(row=current_row, column=1).value = title
-            
+
             if isrc:
                 ws.cell(row=current_row, column=7).value = isrc # Το ISRC πήγε στη στήλη 7 (G)
             if notes_text:
@@ -768,7 +770,7 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
             cell = ws.cell(row=separator_row, column=col_num)
             cell.fill = gray_fill
             cell.border = black_border
-            
+
             # Εισαγωγή της δυναμικής Excel Formula (=SUM) στο κελί της στήλης 6 (% RIGHTS)
             if col_num == 6:
                 cell.value = f"=SUM(F{start_row}:F{end_row})"
@@ -815,7 +817,7 @@ import os
 from supabase import create_client, Client
 
 st.set_page_config(
-    page_title="Stay Independent | Catalog Generator", 
+    page_title="Stay Independent Tool",
     page_icon="StayLogo2.jpg",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -836,7 +838,7 @@ st.markdown("""
         padding: 15px;
         border-radius: 10px;
         background: linear-gradient(135deg, #2a2a2a, #1f1f1f);
-        border-left: 5px solid #1DB954; 
+        border-left: 5px solid #1DB954;
         margin-bottom: 20px;
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }
@@ -885,52 +887,74 @@ if token:
     except Exception:
         spotify_user = "Άγνωστος Χρήστης"
 
-# --- Sidebar UI & Navigation Menu ---
+selected_menu = None
+
+# ==============================================================================
+# LANDING / LOGIN PAGE (no sidebar, centered) - shown only when logged out
+# ==============================================================================
+if not token:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col_left, col_center, col_right = st.columns([1, 2, 1])
+
+    with col_center:
+        if os.path.exists("StayLogo2.jpg"):
+            st.image("StayLogo2.jpg", width="stretch")
+
+        st.markdown(
+            "<h1 style='text-align:center;'>Stay Independent Tool</h1>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<p style='text-align:center; font-size:18px; color:#aaa;'>"
+            "Welcome to the Stay Independent multi-tool. Please log in with your "
+            "Spotify account to access the Catalog Generator and your Export History."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        auth_url = build_authorize_url(client_id, redirect_uri)
+        _, btn_col, _ = st.columns([1, 2, 1])
+        with btn_col:
+            st.link_button("Σύνδεση με Spotify", auth_url, type="primary", width="stretch")
+
+    st.stop()
+
+# ==============================================================================
+# SIDEBAR UI & NAVIGATION MENU - shown only when logged in
+# ==============================================================================
 with st.sidebar:
     if os.path.exists("StayLogo2.jpg"):
-        # Χρησιμοποίησε το use_column_width="always" αντί για use_container_width
-        st.image("StayLogo2.jpg", use_column_width="always") 
+        st.image("StayLogo2.jpg", width="stretch")
     else:
-        st.markdown("## 🎵 Stay Independent")
-    
-    st.markdown("### Stay Independent\n*Multi-tool*")
-    st.divider()
-    
-    selected_menu = None
-    if token:
-        st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**")
-        
-        # ΠΡΟΣΘΗΚΗ 1: Μενού Επιλογών
-        st.markdown("Μενού")
-        selected_menu = st.radio(
-            "Επιλέξτε ενέργεια:",
-            ["Γεννήτρια Catalog", "Ιστορικό & Αρχεία", "Ρυθμίσεις (Προσεχώς)"],
-            label_visibility="collapsed"
-        )
-        st.divider()
-        
-        if st.button("Αποσύνδεση", width="stretch"):
-            st.session_state.pop("token_data", None)
-            st.rerun()
-    else:
-        st.warning("🔴 Απαιτείται σύνδεση")
-        
-    st.divider()
-    st.caption("Stay Independent © 2026")
+        st.markdown("## 🎵 Stay Independent Tool")
 
-# Αν δεν υπάρχει token, σταματάμε εδώ και δείχνουμε το Login
-if not token:
-    st.title("Catalog Generator")
-    st.info("Για να ξεκινήσετε, απαιτείται ταυτοποίηση. Θα ανακτηθούν οι δικές σας και οι collaborative playlists.")
-    auth_url = build_authorize_url(client_id, redirect_uri)
-    st.link_button("Σύνδεση με Spotify", auth_url, type="primary")
-    st.stop()
+    st.markdown("### Stay Independent Tool\n*Multi-tool*")
+    st.divider()
+
+    st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**")
+
+    st.markdown("Μενού")
+    selected_menu = st.radio(
+        "Επιλέξτε ενέργεια:",
+        ["Γεννήτρια Catalog", "Ιστορικό & Αρχεία", "Ρυθμίσεις (Προσεχώς)"],
+        label_visibility="collapsed"
+    )
+    st.divider()
+
+    if st.button("Αποσύνδεση", width="stretch"):
+        st.session_state.pop("token_data", None)
+        st.rerun()
+
+    st.divider()
+    st.caption("Stay Independent Tool © 2026")
 
 # ==============================================================================
 # ΣΕΛΙΔΑ 1: ΓΕΝΝΗΤΡΙΑ CATALOG
 # ==============================================================================
 if selected_menu == "Γεννήτρια Catalog":
-    st.title("Δημιουργία Νέου Catalog")
+    st.title("Γεννήτρια Catalog")
 
     # Φόρτωση IPI List
     try:
@@ -963,7 +987,7 @@ if selected_menu == "Γεννήτρια Catalog":
         selected_playlist = next(p for p in playlists if p["name"] == selected_name)
 
     with col_btn:
-        generate_trigger = st.button("Δημιουργία Catalog", type="primary", use_container_width=True)
+        generate_trigger = st.button("Δημιουργία Catalog", type="primary", width="stretch")
 
     if generate_trigger:
         st.divider()
@@ -1000,20 +1024,20 @@ if selected_menu == "Γεννήτρια Catalog":
             st.toast("Η δημιουργία του Excel ολοκληρώθηκε!", icon="🎉")
 
             output_filename = make_catalog_filename(selected_playlist["name"])
-            
+
 # ΠΡΟΣΘΗΚΗ 2: Αποθήκευση στο Supabase Storage
             supabase = init_supabase()
             file_public_url = None
-            
+
             if supabase and spotify_user:
                 try:
                     # Μετατροπή του BytesIO σε raw bytes
                     file_bytes = buffer.getvalue()
-                    
+
                     # Δημιουργία μοναδικού ονόματος για το αρχείο στο bucket
                     timestamp = int(time.time())
                     storage_path = f"{spotify_user}/{timestamp}_{output_filename}"
-                    
+
                     # Upload στο bucket με όνομα "catalogs" (πρέπει να το φτιάξεις στο Supabase!)
                     supabase.storage.from_("catalogs").upload(
                         file=file_bytes,
@@ -1022,7 +1046,7 @@ if selected_menu == "Γεννήτρια Catalog":
                     )
                     # Ανάκτηση του Public URL
                     file_public_url = supabase.storage.from_("catalogs").get_public_url(storage_path)
-                    
+
                     # Εγγραφή ιστορικού στη Βάση Δεδομένων με το URL
                     supabase.table("export_history").insert({
                         "spotify_user": spotify_user,
@@ -1030,7 +1054,7 @@ if selected_menu == "Γεννήτρια Catalog":
                         "track_count": len(tracks),
                         "file_url": file_public_url # Η νέα στήλη
                     }).execute()
-                    
+
                 except Exception as e:
                     st.error(f"🚨 Σφάλμα επικοινωνίας με το Supabase: {e}")
                     st.toast("Δεν ενημερώθηκε το ιστορικό.", icon="⚠️")
@@ -1044,9 +1068,9 @@ if selected_menu == "Γεννήτρια Catalog":
                 m1.metric("Σύνολο Τραγουδιών", len(tracks))
                 m2.metric("Επιτυχείς Αντιστοιχίσεις IPI", report.get('ipi_matches', 0))
                 m3.metric("Προειδοποιήσεις", len(report['health_warnings']) + len(report['tidal_fallbacks']))
-                
+
                 st.markdown("<br>", unsafe_allow_html=True)
-                
+
                 _, col_down, _ = st.columns([1, 2, 1])
                 with col_down:
                     st.download_button(
@@ -1054,7 +1078,7 @@ if selected_menu == "Γεννήτρια Catalog":
                         data=buffer.getvalue(),
                         file_name=output_filename,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
+                        width="stretch",
                         type="primary"
                     )
 
@@ -1064,7 +1088,7 @@ if selected_menu == "Γεννήτρια Catalog":
                     df_preview["contributors"] = df_preview["contributors"].apply(lambda x: ", ".join(x))
                     st.dataframe(
                         df_preview,
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                         column_config={
                             "title": "Τίτλος",
@@ -1082,7 +1106,7 @@ if selected_menu == "Γεννήτρια Catalog":
                         st.write(f"• **{title}** | ISRC: `{isrc}`")
                 else:
                     st.success("Κανένα πρόβλημα με τα ISRC!")
-                    
+
                 st.divider()
 
                 if report["tidal_fallbacks"]:
@@ -1101,7 +1125,7 @@ if selected_menu == "Γεννήτρια Catalog":
 elif selected_menu == "Ιστορικό & Αρχεία":
     st.title("📂 Ιστορικό Εξαγωγών")
     st.markdown("Εδώ μπορείτε να δείτε τις προηγούμενες εξαγωγές σας, να κατεβάσετε τα αρχεία Excel, ή να τα διαγράψετε οριστικά.")
-    
+
     supabase = init_supabase()
     if not supabase:
         st.warning("Το ιστορικό δεν είναι διαθέσιμο (Λείπουν τα credentials του Supabase στα Secrets).")
@@ -1113,21 +1137,21 @@ elif selected_menu == "Ιστορικό & Αρχεία":
                 .eq("spotify_user", spotify_user) \
                 .order("exported_at", desc=True) \
                 .execute()
-            
+
             if response.data:
                 df_history = pd.DataFrame(response.data)
                 df_history["exported_at"] = pd.to_datetime(df_history["exported_at"]).dt.tz_convert("Europe/Athens").dt.strftime("%d-%m-%Y %H:%M:%S")
-                
+
                 # Προσθέτουμε μια προσωρινή στήλη (Checkbox) στην αρχή του Dataframe
                 df_history.insert(0, "Επιλογή", False)
-                
+
                 st.markdown("### Λίστα Αρχείων")
                 st.caption("Επιλέξτε το κουτάκι αριστερά από τις εγγραφές που θέλετε να διαγράψετε.")
-                
+
                 # Χρήση data_editor για διαδραστικότητα
                 edited_df = st.data_editor(
                     df_history,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     column_config={
                         "id": None, # Κρύβουμε το ID από τον χρήστη για να είναι καθαρό το UI
@@ -1143,21 +1167,21 @@ elif selected_menu == "Ιστορικό & Αρχεία":
                         )
                     }
                 )
-                
+
                 # Εντοπισμός των γραμμών που ο χρήστης τσέκαρε
                 rows_to_delete = edited_df[edited_df["Επιλογή"] == True]
-                
+
                 if not rows_to_delete.empty:
                     st.warning(f"Έχετε επιλέξει {len(rows_to_delete)} αρχεία προς διαγραφή. Η ενέργεια δεν αναιρείται.")
-                    
+
                     if st.button("🗑️ Οριστική Διαγραφή Επιλεγμένων", type="primary"):
                         with st.spinner("Διαγραφή σε εξέλιξη..."):
                             success_count = 0
-                            
+
                             for _, row in rows_to_delete.iterrows():
                                 record_id = row["id"]
                                 file_url = row["file_url"]
-                                
+
                                 # Βήμα 1: Διαγραφή του αρχείου από το Supabase Storage
                                 if file_url:
                                     try:
@@ -1169,14 +1193,14 @@ elif selected_menu == "Ιστορικό & Αρχεία":
                                             supabase.storage.from_("catalogs").remove([storage_path])
                                     except Exception as e:
                                         st.error(f"Αδυναμία διαγραφής αρχείου από το Storage: {e}")
-                                
+
                                 # Βήμα 2: Διαγραφή της εγγραφής από τη βάση δεδομένων (Table)
                                 try:
                                     supabase.table("export_history").delete().eq("id", record_id).execute()
                                     success_count += 1
                                 except Exception as e:
                                     st.error(f"Αδυναμία διαγραφής εγγραφής {record_id} από τη βάση: {e}")
-                                    
+
                             if success_count > 0:
                                 st.success(f"Διαγράφηκαν επιτυχώς {success_count} εγγραφές/αρχεία!")
                                 time.sleep(1.5) # Μικρή παύση για να προλάβει ο χρήστης να διαβάσει το μήνυμα
@@ -1185,3 +1209,11 @@ elif selected_menu == "Ιστορικό & Αρχεία":
                 st.info("Δεν υπάρχει ιστορικό εξαγωγών για τον λογαριασμό σας.")
         except Exception as e:
             st.error(f"Αδυναμία ανάκτησης ιστορικού: {e}")
+
+
+# ==============================================================================
+# ΣΕΛΙΔΑ 3: ΡΥΘΜΙΣΕΙΣ (ΠΡΟΣΕΧΩΣ)
+# ==============================================================================
+elif selected_menu == "Ρυθμίσεις (Προσεχώς)":
+    st.title("⚙️ Ρυθμίσεις")
+    st.info("Αυτή η ενότητα είναι υπό ανάπτυξη και θα είναι διαθέσιμη σύντομα.")
