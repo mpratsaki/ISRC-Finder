@@ -649,6 +649,7 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
     header_font = Font(bold=True)
     center_alignment = Alignment(horizontal="center", vertical="center")
     top_alignment = Alignment(vertical="top", wrap_text=True)
+    sum_font = Font(bold=True, color="000000") # Έντονη γραφή για το άθροισμα
 
     # Πιο έντονο μαύρο περίγραμμα (medium style)
     black_border = Border(
@@ -661,7 +662,8 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
     # Γκρι γέμισμα για το διαχωριστικό κελί
     gray_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
 
-    headers = ["TITLE", "ROLE", "WRITERS", "ISRC", "IPI", "PRO", "NOTES"]
+    # Νέα σειρά στηλών βάσει του πρότυπου Excel
+    headers = ["TITLE", "ROLE", "WRITERS", "IPI", "PRO", "% RIGHTS", "ISRC", "NOTES"]
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_num)
         cell.value = header
@@ -670,13 +672,14 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
         cell.border = black_border
 
     ws.freeze_panes = "A2"
-    ws.column_dimensions["A"].width = 35
-    ws.column_dimensions["B"].width = 15
-    ws.column_dimensions["C"].width = 32
-    ws.column_dimensions["D"].width = 20
-    ws.column_dimensions["E"].width = 16
-    ws.column_dimensions["F"].width = 18
-    ws.column_dimensions["G"].width = 55
+    ws.column_dimensions["A"].width = 35  # TITLE
+    ws.column_dimensions["B"].width = 15  # ROLE
+    ws.column_dimensions["C"].width = 32  # WRITERS
+    ws.column_dimensions["D"].width = 16  # IPI
+    ws.column_dimensions["E"].width = 18  # PRO
+    ws.column_dimensions["F"].width = 15  # % RIGHTS
+    ws.column_dimensions["G"].width = 20  # ISRC
+    ws.column_dimensions["H"].width = 55  # NOTES
 
     insert_at = 2
     total_tracks = len(tracks)
@@ -723,44 +726,54 @@ def generate_new_catalog(tracks, ipi_lookup=None, progress_callback=None):
         contributor_rows = _build_contributor_rows(contributor_names, ipi_lookup)
         report["ipi_matches"] += sum(1 for row in contributor_rows if row["matched"])
 
-        # Δημιουργούμε ακριβώς όσες γραμμές χρειάζονται για τους writers
         needed_rows = max(1, len(contributor_rows))
         notes_text = "; ".join(dict.fromkeys(note for note in notes if note))
+        
+        # Αποθηκεύουμε την αρχική και τελική γραμμή του τρέχοντος τραγουδιού για τη συνάρτηση SUM
+        start_row = insert_at
+        end_row = insert_at + needed_rows - 1
 
         for i in range(needed_rows):
             current_row = insert_at + i
 
             # Επαναλαμβάνουμε TITLE, ISRC και NOTES σε ΚΑΘΕ γραμμή του πλαισίου
             ws.cell(row=current_row, column=1).value = title
+            
             if isrc:
-                ws.cell(row=current_row, column=4).value = isrc
+                ws.cell(row=current_row, column=7).value = isrc # Το ISRC πήγε στη στήλη 7 (G)
             if notes_text:
-                ws.cell(row=current_row, column=7).value = notes_text
+                ws.cell(row=current_row, column=8).value = notes_text # Τα NOTES πήγαν στη στήλη 8 (H)
 
             if i < len(contributor_rows):
                 contributor = contributor_rows[i]
-                ws.cell(row=current_row, column=3).value = contributor["writer"]
+                ws.cell(row=current_row, column=3).value = contributor["writer"] # Το WRITERS μένει στήλη 3 (C)
 
                 if contributor["ipi"] is not None:
-                    ipi_cell = ws.cell(row=current_row, column=5)
+                    ipi_cell = ws.cell(row=current_row, column=4) # Το IPI πήγε στη στήλη 4 (D)
                     ipi_cell.value = contributor["ipi"]
                     ipi_cell.number_format = "0"
 
                 if contributor["pro"]:
-                    ws.cell(row=current_row, column=6).value = contributor["pro"]
+                    ws.cell(row=current_row, column=5).value = contributor["pro"] # Το PRO πήγε στη στήλη 5 (E)
 
-            # Εφαρμογή του μαύρου περιγράμματος σε όλα τα κελιά της τρέχουσας γραμμής
-            for col_num in range(1, 8):
+            # Εφαρμογή του μαύρου περιγράμματος σε όλα τα 8 κελιά της τρέχουσας γραμμής
+            for col_num in range(1, 9):
                 cell = ws.cell(row=current_row, column=col_num)
                 cell.alignment = top_alignment
                 cell.border = black_border
 
-        # --- Προσθήκη Γκρι Διαχωριστικής Γραμμής ---
+        # --- Προσθήκη Γκρι Διαχωριστικής Γραμμής & Δυναμικού Υπολογισμού ---
         separator_row = insert_at + needed_rows
-        for col_num in range(1, 8):
+        for col_num in range(1, 9):
             cell = ws.cell(row=separator_row, column=col_num)
             cell.fill = gray_fill
             cell.border = black_border
+            
+            # Εισαγωγή της δυναμικής Excel Formula (=SUM) στο κελί της στήλης 6 (% RIGHTS)
+            if col_num == 6:
+                cell.value = f"=SUM(F{start_row}:F{end_row})"
+                cell.font = sum_font
+                cell.alignment = center_alignment
 
         report["filled"].append(
             {
