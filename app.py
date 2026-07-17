@@ -856,7 +856,7 @@ token = get_valid_token()
 # --- Sidebar UI ---
 with st.sidebar:
     # 1. Ενημέρωση του αρχείου σε .png
-    st.image("StayLogo2.png", use_container_width=True)
+    st.image("StayLogo2.jpg", use_container_width=True)
     
     # 2. Αφαίρεση του MMS Matrix - Πιο απλό και επαγγελματικό
     st.markdown("### Stay Independent\n*Catalog Generator*")
