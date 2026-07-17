@@ -801,7 +801,7 @@ import pandas as pd
 
 st.set_page_config(
     page_title="Stay Independent | Catalog Generator", 
-    page_icon="🎵",
+    page_icon="StayLogo2.jpg",
     layout="wide",
     initial_sidebar_state="expanded"
 )
