@@ -927,7 +927,7 @@ if generate_trigger:
             st.stop()
 
         # --- LIVE ACTIVITY UI ---
-        st.markdown("###Live Activity")
+        st.markdown("Live Activity")
         live_status = st.empty()
         progress_bar = st.progress(0.0)
 
@@ -938,7 +938,7 @@ if generate_trigger:
             html_content = f"""
             <div class="live-activity-box">
                 <span style="color:#aaa; font-size:14px;">Επεξεργασία {current} από {total}</span><br>
-                <strong style="font-size:18px;">🎵 {title}</strong>
+                <strong style="font-size:18px;"> {title}</strong>
             </div>
             """
             live_status.markdown(html_content, unsafe_allow_html=True)
@@ -955,8 +955,8 @@ if generate_trigger:
         st.toast("Η δημιουργία του Excel ολοκληρώθηκε!", icon="🎉")
 
         # --- ΔΙΑΔΡΑΣΤΙΚΟ DASHBOARD (Tabs) ---
-        st.markdown("### 📊 Αποτελέσματα & Εξαγωγή")
-        tab_summary, tab_preview, tab_logs = st.tabs(["📋 Σύνοψη", "👀 Προεπισκόπηση", "⚠️ Σφάλματα & Logs"])
+        st.markdown("Αποτελέσματα & Εξαγωγή")
+        tab_summary, tab_preview, tab_logs = st.tabs(["Σύνοψη", "Προεπισκόπηση", "Σφάλματα & Logs"])
 
         with tab_summary:
             m1, m2, m3 = st.columns(3)
@@ -970,7 +970,7 @@ if generate_trigger:
             _, col_down, _ = st.columns([1, 2, 1])
             with col_down:
                 st.download_button(
-                    label="⬇️ Λήψη Ολοκληρωμένου Excel",
+                    label="Λήψη Ολοκληρωμένου Excel",
                     data=buffer,
                     file_name=output_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
