@@ -798,6 +798,8 @@ def make_catalog_filename(playlist_name):
 # Streamlit UI - Rich & Interactive
 # --------------------------------------------------------------------------
 import pandas as pd
+import os
+from supabase import create_client, Client
 
 st.set_page_config(
     page_title="Stay Independent | Catalog Generator", 
@@ -806,10 +808,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Ενσωμάτωση Custom CSS για πιο όμορφο UI ---
+# --- Ενσωμάτωση Custom CSS ---
 st.markdown("""
     <style>
-    /* Styling για τα κύρια κουμπιά */
     .stButton>button {
         border-radius: 8px;
         transition: all 0.3s ease;
@@ -818,21 +819,33 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
-    /* Styling για το Live Activity status */
     .live-activity-box {
         padding: 15px;
         border-radius: 10px;
         background: linear-gradient(135deg, #2a2a2a, #1f1f1f);
-        border-left: 5px solid #1DB954; /* Spotify Green */
+        border-left: 5px solid #1DB954; 
         margin-bottom: 20px;
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }
-    /* Hide top padding */
     .block-container {
         padding-top: 2rem;
     }
     </style>
 """, unsafe_allow_html=True)
+
+# --- Supabase Initialization ---
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY")
+    if url and key:
+        return create_client(url, key)
+    return None
+
+def fetch_current_user(token):
+    """Ανακτά το προφίλ του χρήστη από το Spotify για να ξέρουμε σε ποιον ανήκει το ιστορικό"""
+    data = _api_get(token, "https://api.spotify.com/v1/me")
+    return data.get("display_name") or data.get("id") or "Άγνωστος Χρήστης"
 
 client_id, client_secret, redirect_uri = get_config()
 
@@ -852,19 +865,27 @@ elif "code" in query_params and "token_data" not in st.session_state:
     st.rerun()
 
 token = get_valid_token()
+spotify_user = None
+
+if token:
+    try:
+        spotify_user = fetch_current_user(token)
+    except Exception:
+        spotify_user = "Άγνωστος Χρήστης"
 
 # --- Sidebar UI ---
 with st.sidebar:
-    # 1. Ενημέρωση του αρχείου σε .png
-    st.image("StayLogo2.jpg", use_container_width=True)
+    if os.path.exists("StayLogo2.png"):
+        st.image("StayLogo2.png", use_container_width=True)
+    else:
+        st.markdown("## 🎵 Stay Independent")
     
-    # 2. Αφαίρεση του MMS Matrix - Πιο απλό και επαγγελματικό
     st.markdown("### Stay Independent\n*Catalog Generator*")
     st.divider()
     
     if token:
-        st.success("🟢 Συνδεδεμένος")
-        if st.button("Αποσύνδεση", use_container_width=True):
+        st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**", icon="🎧")
+        if st.button("🚪 Αποσύνδεση", use_container_width=True):
             st.session_state.pop("token_data", None)
             st.rerun()
     else:
@@ -874,12 +895,12 @@ with st.sidebar:
     st.caption("Stay Independent © 2026")
 
 # --- Main Content UI ---
-st.title("Catalog Generator")
+st.title("Catalog Generator ⚡")
 
 if not token:
     st.info("Για να ξεκινήσετε, απαιτείται ταυτοποίηση. Θα ανακτηθούν οι δικές σας και οι collaborative playlists.")
     auth_url = build_authorize_url(client_id, redirect_uri)
-    st.link_button("Σύνδεση με Spotify", auth_url, type="primary")
+    st.link_button("🔑 Σύνδεση με Spotify", auth_url, type="primary")
     st.stop()
 
 # --- Step 1: IPI List (Ground Truth) ---
@@ -914,7 +935,7 @@ with col_sel:
     selected_playlist = next(p for p in playlists if p["name"] == selected_name)
 
 with col_btn:
-    generate_trigger = st.button("Δημιουργία Catalog", type="primary", use_container_width=True)
+    generate_trigger = st.button("🚀 Δημιουργία Catalog", type="primary", use_container_width=True)
 
 # --- Step 3: Generation (Live Activities) & Dashboard ---
 if generate_trigger:
@@ -926,8 +947,7 @@ if generate_trigger:
             st.warning("Η playlist είναι κενή.")
             st.stop()
 
-        # --- LIVE ACTIVITY UI ---
-        st.markdown("Live Activity")
+        st.markdown("### 📡 Live Activity")
         live_status = st.empty()
         progress_bar = st.progress(0.0)
 
@@ -938,7 +958,7 @@ if generate_trigger:
             html_content = f"""
             <div class="live-activity-box">
                 <span style="color:#aaa; font-size:14px;">Επεξεργασία {current} από {total}</span><br>
-                <strong style="font-size:18px;"> {title}</strong>
+                <strong style="font-size:18px;">🎵 {title}</strong>
             </div>
             """
             live_status.markdown(html_content, unsafe_allow_html=True)
@@ -949,14 +969,25 @@ if generate_trigger:
             progress_callback=update_generation_progress,
         )
 
-        # Καθαρισμός του Live Activity όταν τελειώσει
         live_status.empty()
         progress_bar.empty()
         st.toast("Η δημιουργία του Excel ολοκληρώθηκε!", icon="🎉")
 
+        # Εγγραφή ιστορικού στη Βάση Δεδομένων
+        supabase = init_supabase()
+        if supabase and spotify_user:
+            try:
+                supabase.table("export_history").insert({
+                    "spotify_user": spotify_user,
+                    "playlist_name": selected_playlist["name"],
+                    "track_count": len(tracks)
+                }).execute()
+            except Exception as e:
+                st.toast(f"Δεν ήταν δυνατή η αποθήκευση στο ιστορικό: {e}", icon="⚠️")
+
         # --- ΔΙΑΔΡΑΣΤΙΚΟ DASHBOARD (Tabs) ---
-        st.markdown("Αποτελέσματα & Εξαγωγή")
-        tab_summary, tab_preview, tab_logs = st.tabs(["Σύνοψη", "Προεπισκόπηση", "Σφάλματα & Logs"])
+        st.markdown("### 📊 Αποτελέσματα & Εξαγωγή")
+        tab_summary, tab_preview, tab_logs, tab_history = st.tabs(["📋 Σύνοψη", "👀 Προεπισκόπηση", "⚠️ Σφάλματα & Logs", "🕰️ Μόνιμο Ιστορικό"])
 
         with tab_summary:
             m1, m2, m3 = st.columns(3)
@@ -970,7 +1001,7 @@ if generate_trigger:
             _, col_down, _ = st.columns([1, 2, 1])
             with col_down:
                 st.download_button(
-                    label="Λήψη Ολοκληρωμένου Excel",
+                    label="⬇️ Λήψη Ολοκληρωμένου Excel",
                     data=buffer,
                     file_name=output_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1008,10 +1039,42 @@ if generate_trigger:
             st.divider()
 
             if report["tidal_fallbacks"]:
-                st.warning(f"Βρέθηκαν {len(report['tidal_fallbacks'])} τραγούδια χωρίς Tidal Credits (Χρησιμοποιήθηκε το Spotify ως Fallback)")
-                with st.expander("Προβολή λίστας τραγουδιών", expanded=False):
+                st.warning(f"Βρέθηκαν {len(report['tidal_fallbacks'])} τραγούδια χωρίς Tidal Credits")
+                with st.expander("Προβολή λίστας", expanded=False):
                     for title in report["tidal_fallbacks"]:
                         st.write(f"• **{title}**")
+
+        with tab_history:
+            if not supabase:
+                st.warning("Το ιστορικό δεν είναι διαθέσιμο (Λείπουν τα credentials του Supabase στα Secrets).")
+            else:
+                try:
+                    # Ανάγνωση δεδομένων από τη βάση, μόνο για τον τρέχοντα χρήστη
+                    response = supabase.table("export_history") \
+                        .select("playlist_name, track_count, exported_at") \
+                        .eq("spotify_user", spotify_user) \
+                        .order("exported_at", desc=True) \
+                        .execute()
+                    
+                    if response.data:
+                        df_history = pd.DataFrame(response.data)
+                        # Μετατροπή της ώρας σε ζώνη Ελλάδας (EEST) για σωστή εμφάνιση
+                        df_history["exported_at"] = pd.to_datetime(df_history["exported_at"]).dt.tz_convert("Europe/Athens").dt.strftime("%d-%m-%Y %H:%M:%S")
+                        
+                        st.dataframe(
+                            df_history,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "playlist_name": "Τίτλος Playlist",
+                                "track_count": "Τραγούδια",
+                                "exported_at": "Ημερομηνία & Ώρα"
+                            }
+                        )
+                    else:
+                        st.info("Δεν υπάρχει ιστορικό εξαγωγών για τον λογαριασμό σας.")
+                except Exception as e:
+                    st.error(f"Αδυναμία ανάκτησης ιστορικού: {e}")
 
     except requests.HTTPError as e:
         st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
