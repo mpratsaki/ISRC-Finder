@@ -875,7 +875,7 @@ if token:
 
 # --- Sidebar UI ---
 with st.sidebar:
-    if os.path.exists("StayLogo2.png"):
+    if os.path.exists("StayLogo2.jpg"):
         st.image("StayLogo2.png", use_container_width=True)
     else:
         st.markdown("## 🎵 Stay Independent")
@@ -885,7 +885,7 @@ with st.sidebar:
     
     if token:
         st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**", icon="🎧")
-        if st.button("🚪 Αποσύνδεση", use_container_width=True):
+        if st.button("Αποσύνδεση", use_container_width=True):
             st.session_state.pop("token_data", None)
             st.rerun()
     else:
@@ -895,12 +895,12 @@ with st.sidebar:
     st.caption("Stay Independent © 2026")
 
 # --- Main Content UI ---
-st.title("Catalog Generator ⚡")
+st.title("Catalog Generator")
 
 if not token:
     st.info("Για να ξεκινήσετε, απαιτείται ταυτοποίηση. Θα ανακτηθούν οι δικές σας και οι collaborative playlists.")
     auth_url = build_authorize_url(client_id, redirect_uri)
-    st.link_button("🔑 Σύνδεση με Spotify", auth_url, type="primary")
+    st.link_button("Σύνδεση με Spotify", auth_url, type="primary")
     st.stop()
 
 # --- Step 1: IPI List (Ground Truth) ---
@@ -926,7 +926,7 @@ if not playlists:
     st.warning("Δεν βρέθηκαν playlists στον λογαριασμό σας.")
     st.stop()
 
-st.markdown("### Επιλογή Δεδομένων")
+st.markdown("Επιλογή Δεδομένων")
 playlist_names = [p["name"] for p in playlists]
 
 col_sel, col_btn = st.columns([3, 1], vertical_alignment="bottom")
@@ -935,7 +935,7 @@ with col_sel:
     selected_playlist = next(p for p in playlists if p["name"] == selected_name)
 
 with col_btn:
-    generate_trigger = st.button("🚀 Δημιουργία Catalog", type="primary", use_container_width=True)
+    generate_trigger = st.button("Δημιουργία Catalog", type="primary", use_container_width=True)
 
 # --- Step 3: Generation (Live Activities) & Dashboard ---
 if generate_trigger:
@@ -947,7 +947,7 @@ if generate_trigger:
             st.warning("Η playlist είναι κενή.")
             st.stop()
 
-        st.markdown("### 📡 Live Activity")
+        st.markdown("Live Activity")
         live_status = st.empty()
         progress_bar = st.progress(0.0)
 
@@ -987,7 +987,7 @@ if generate_trigger:
 
         # --- ΔΙΑΔΡΑΣΤΙΚΟ DASHBOARD (Tabs) ---
         st.markdown("### 📊 Αποτελέσματα & Εξαγωγή")
-        tab_summary, tab_preview, tab_logs, tab_history = st.tabs(["📋 Σύνοψη", "👀 Προεπισκόπηση", "⚠️ Σφάλματα & Logs", "🕰️ Μόνιμο Ιστορικό"])
+        tab_summary, tab_preview, tab_logs, tab_history = st.tabs(["Σύνοψη", "Προεπισκόπηση", "Σφάλματα & Logs", "Μόνιμο Ιστορικό"])
 
         with tab_summary:
             m1, m2, m3 = st.columns(3)
