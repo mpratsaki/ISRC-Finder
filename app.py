@@ -1228,7 +1228,7 @@ def page_history(token, spotify_user):
 # TOOL A: Musixmatch Sync Checker (placeholder UI)
 # ==========================================================================
 def page_musixmatch_checker():
-    st.title("🎤 Musixmatch Sync Checker")
+    st.title("Musixmatch Sync Checker")
     st.caption(
         "Έλεγχος διαθεσιμότητας synced / unsynced lyrics ανά ISRC. "
         "**Demo UI** — τα δεδομένα είναι placeholder μέχρι να συνδεθεί το Musixmatch API."
@@ -1262,7 +1262,7 @@ def page_musixmatch_checker():
         unsynced = max(total - synced - missing, 0)
 
         st.divider()
-        st.markdown("### 📊 Αναφορά Συγχρονισμού (Demo)")
+        st.markdown("Αναφορά Συγχρονισμού (Demo)")
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Σύνολο ISRCs", total)
@@ -1357,7 +1357,7 @@ def page_metadata_health():
 # TOOL C: Smart Links Generator (real Odesli API)
 # ==========================================================================
 def page_smart_links():
-    st.title("🔗 Smart Links Generator")
+    st.title("Smart Links Generator")
     st.caption("Δημιουργήστε universal links για όλες τις πλατφόρμες από ένα Spotify URL (μέσω Odesli).")
 
     url_input = st.text_input(
@@ -1404,7 +1404,7 @@ def page_smart_links():
             if artist:
                 st.markdown(f"**{artist}**")
             if page_url:
-                st.markdown(f"[🌐 Universal song.link σελίδα]({page_url})")
+                st.markdown(f"[Universal song.link σελίδα]({page_url})")
 
         st.markdown("### Links ανά πλατφόρμα")
 
@@ -1434,7 +1434,7 @@ def page_smart_links():
 # TOOL D: MusicBrainz Explorer (placeholder / under development)
 # ==========================================================================
 def page_musicbrainz():
-    st.title("🧬 MusicBrainz Explorer")
+    st.title("MusicBrainz Explorer")
 
     st.markdown(
         """
@@ -1451,11 +1451,11 @@ def page_musicbrainz():
         "(JSON/XML API & PostgreSQL δομή) για βαθιά queries metadata:"
     )
     st.markdown(
-        "- 📀 **Releases & Recordings** — άντληση όλων των εκδόσεων ενός κομματιού\n"
-        "- 👤 **Legal names & aliases** — επίσημα ονόματα δημιουργών\n"
-        "- 🔢 **ISRCs & barcodes** — cross-reference identifiers\n"
-        "- 🏷️ **Label details** — πληροφορίες δισκογραφικής\n"
-        "- 🔗 **Work relationships** — συσχετίσεις έργων, composers, arrangers"
+        "- **Releases & Recordings** — άντληση όλων των εκδόσεων ενός κομματιού\n"
+        "- **Legal names & aliases** — επίσημα ονόματα δημιουργών\n"
+        "- **ISRCs & barcodes** — cross-reference identifiers\n"
+        "- **Label details** — πληροφορίες δισκογραφικής\n"
+        "- **Work relationships** — συσχετίσεις έργων, composers, arrangers"
     )
     st.info(
         "Σύντομα θα μπορείτε να κάνετε deep queries κατευθείαν από την "
@@ -1518,19 +1518,19 @@ def render_sidebar(spotify_user):
         st.divider()
 
     # --- Top section: Εργαλεία ---
-    st.sidebar.markdown("### 🛠️ Εργαλεία")
+    st.sidebar.markdown("Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("Musixmatch Sync Checker", "Musixmatch Sync Checker")
     _nav_button("Metadata Health", "Metadata Health")
     _nav_button("Smart Links Generator", "Smart Links Generator")
-    _nav_button("MusicBrainz Explorer 🚧", "MusicBrainz Explorer")
+    _nav_button("MusicBrainz Explorer", "MusicBrainz Explorer")
 
     # --- Spacer to push the System block lower ---
     st.sidebar.markdown("<div style='height: 2.5rem'></div>", unsafe_allow_html=True)
     st.sidebar.divider()
 
     # --- Bottom section: Σύστημα ---
-    st.sidebar.markdown("### ⚙️ Σύστημα")
+    st.sidebar.markdown("Σύστημα")
     _nav_button("Ιστορικό & Αρχεία", "Ιστορικό & Αρχεία")
     _nav_button("Ρυθμίσεις", "Ρυθμίσεις")
 
