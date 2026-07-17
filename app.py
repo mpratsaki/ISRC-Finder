@@ -797,7 +797,7 @@ def make_catalog_filename(playlist_name):
 # --------------------------------------------------------------------------
 # Streamlit UI - Rich & Interactive
 # --------------------------------------------------------------------------
-import pandas as pd # Χρήσιμο για το διαδραστικό Dataframe, πρόσθεσέ το στα imports σου πάνω-πάνω
+import pandas as pd
 
 st.set_page_config(
     page_title="Stay Independent | Catalog Generator", 
@@ -855,8 +855,11 @@ token = get_valid_token()
 
 # --- Sidebar UI ---
 with st.sidebar:
-    st.image("StayLogo2.jpg", use_container_width=True)
-    st.markdown("### MMS Matrix\n*The Catalog Utility*")
+    # 1. Ενημέρωση του αρχείου σε .png
+    st.image("StayLogo2.png", use_container_width=True)
+    
+    # 2. Αφαίρεση του MMS Matrix - Πιο απλό και επαγγελματικό
+    st.markdown("### Stay Independent\n*Catalog Generator*")
     st.divider()
     
     if token:
@@ -885,7 +888,6 @@ try:
     with st.spinner("Φόρτωση IPI LIST από το GitHub..."):
         ipi_file_bytes = fetch_private_ipi_list_bytes(**private_ipi_config)
         ipi_lookup, ipi_source_rows = build_ipi_lookup_from_bytes(ipi_file_bytes)
-    # Αθόρυβη επιβεβαίωση με toast αντί για τεράστιο πράσινο κουτί
     st.toast(f"IPI LIST Φορτώθηκε: {ipi_source_rows} εγγραφές", icon="📚")
 except Exception as e:
     st.error("Αδυναμία φόρτωσης IPI LIST από το ιδιωτικό repository.")
@@ -933,7 +935,6 @@ if generate_trigger:
             progress_value = current / max(total, 1)
             progress_bar.progress(progress_value)
             
-            # Μορφοποίηση του Live Activity Box
             html_content = f"""
             <div class="live-activity-box">
                 <span style="color:#aaa; font-size:14px;">Επεξεργασία {current} από {total}</span><br>
@@ -955,7 +956,7 @@ if generate_trigger:
 
         # --- ΔΙΑΔΡΑΣΤΙΚΟ DASHBOARD (Tabs) ---
         st.markdown("### 📊 Αποτελέσματα & Εξαγωγή")
-        tab_summary, tab_preview, tab_logs = st.tabs(["📋 Σύνοψη", "👀 Προεπισκόπηση Δεδομένων", "⚠️ Logs & Προειδοποιήσεις"])
+        tab_summary, tab_preview, tab_logs = st.tabs(["📋 Σύνοψη", "👀 Προεπισκόπηση", "⚠️ Σφάλματα & Logs"])
 
         with tab_summary:
             m1, m2, m3 = st.columns(3)
@@ -979,9 +980,7 @@ if generate_trigger:
 
         with tab_preview:
             if report["filled"]:
-                # Μετατροπή της λίστας σε DataFrame για να είναι searchable/sortable
                 df_preview = pd.DataFrame(report["filled"])
-                # Προσαρμογή στηλών για πιο όμορφη εμφάνιση
                 df_preview["contributors"] = df_preview["contributors"].apply(lambda x: ", ".join(x))
                 st.dataframe(
                     df_preview,
@@ -1009,7 +1008,7 @@ if generate_trigger:
             st.divider()
 
             if report["tidal_fallbacks"]:
-                st.warning(f"Βρέθηκαν {len(report['tidal_fallbacks'])} τραγούδια χωρίς Tidal Credits (Spotify Fallback)")
+                st.warning(f"Βρέθηκαν {len(report['tidal_fallbacks'])} τραγούδια χωρίς Tidal Credits (Χρησιμοποιήθηκε το Spotify ως Fallback)")
                 with st.expander("Προβολή λίστας τραγουδιών", expanded=False):
                     for title in report["tidal_fallbacks"]:
                         st.write(f"• **{title}**")
