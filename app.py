@@ -863,7 +863,7 @@ with st.sidebar:
     st.divider()
     
     if token:
-        st.success("🟢 Συνδεδεμένος", icon="🎧")
+        st.success("🟢 Συνδεδεμένος")
         if st.button("Αποσύνδεση", use_container_width=True):
             st.session_state.pop("token_data", None)
             st.rerun()
@@ -927,7 +927,7 @@ if generate_trigger:
             st.stop()
 
         # --- LIVE ACTIVITY UI ---
-        st.markdown("### 📡 Live Activity")
+        st.markdown("###Live Activity")
         live_status = st.empty()
         progress_bar = st.progress(0.0)
 
