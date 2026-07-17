@@ -884,10 +884,10 @@ with st.sidebar:
     
     selected_menu = None
     if token:
-        st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**", icon="🎧")
+        st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**")
         
         # ΠΡΟΣΘΗΚΗ 1: Μενού Επιλογών
-        st.markdown("### 📌 Μενού")
+        st.markdown("Μενού")
         selected_menu = st.radio(
             "Επιλέξτε ενέργεια:",
             ["Γεννήτρια Catalog", "Ιστορικό & Αρχεία", "Ρυθμίσεις (Προσεχώς)"],
