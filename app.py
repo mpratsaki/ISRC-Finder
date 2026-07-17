@@ -335,7 +335,7 @@ def fetch_artist(token, artist_id):
     return {"id": data["id"], "name": data.get("name") or artist_id}
 
 
-def fetch_artist_albums(token, artist_id, market="from_token"):
+def fetch_artist_albums(token, artist_id, market=None):
     """
     Σαρώνει albums, singles & EPs, compilations και appears-on ενός καλλιτέχνη.
 
@@ -346,9 +346,15 @@ def fetch_artist_albums(token, artist_id, market="from_token"):
 
     Χρησιμοποιούμε ΜΟΝΟ params dict (ποτέ χειροκίνητο query string) και, μόλις
     η Spotify μας δώσει "next" URL για την επόμενη σελίδα, καλούμε με
-    params=None — το "next" περιέχει ήδη ολόκληρο το query string. Αυτό
-    αποτρέπει ακριβώς το σφάλμα "400 Invalid limit" που προκύπτει όταν
-    στέλνεις limit/include_groups δύο φορές (μία στο URL, μία στο params).
+    params=None — το "next" περιέχει ήδη ολόκληρο το query string.
+
+    ΣΗΜΑΝΤΙΚΟ: ΔΕΝ στέλνουμε market="from_token" — αυτή η ειδική τιμή
+    καταργήθηκε από τη Spotify (αλλαγές Nov 2024 στο Web API) και προκαλεί
+    "400 Invalid limit", παρόλο που το πραγματικό πρόβλημα είναι το market,
+    όχι το limit (το μήνυμα λάθους της Spotify είναι παραπλανητικό εδώ).
+    Αν δεν σταλεί market καθόλου, η Spotify επιστρέφει το πλήρες κατάλογο· τα
+    ενδεχόμενα διπλότυπα ανά αγορά αφαιρούνται ούτως ή άλλως στο dedupe-by-ISRC
+    βήμα του scan_artist_catalog().
     """
     albums = []
     seen_ids = set()
@@ -358,8 +364,9 @@ def fetch_artist_albums(token, artist_id, market="from_token"):
         "include_groups": "album,single,compilation,appears_on",
         "limit": 50,
         "offset": 0,
-        "market": market,
     }
+    if market:
+        params["market"] = market
 
     while url:
         data = _spotify_api_get(token, url, params=params)
@@ -382,7 +389,7 @@ def fetch_artist_albums(token, artist_id, market="from_token"):
     return albums
 
 
-def fetch_album_tracks(token, album_id, artist_id, market="from_token"):
+def fetch_album_tracks(token, album_id, artist_id, market=None):
     """
     Επιστρέφει τα track IDs ενός album, μόνο για τραγούδια όπου ο καλλιτέχνης
     πραγματικά συμμετέχει (σημαντικό για compilations/appears_on, όπου το
@@ -392,11 +399,14 @@ def fetch_album_tracks(token, album_id, artist_id, market="from_token"):
     Σκόπιμα ΔΕΝ χρησιμοποιούμε το batch endpoint /v1/albums (max 20 ids, και
     μπορεί να επιστρέψει 403 όταν κάποιο album μέσα στο batch έχει
     περιορισμούς market) — αντ' αυτού διαβάζουμε ένα-ένα τα albums μέσω
-    /v1/albums/{id}/tracks, που είναι πιο αξιόπιστο.
+    /v1/albums/{id}/tracks, που είναι πιο αξιόπιστο. Ούτε εδώ στέλνουμε
+    market="from_token" — καταργήθηκε από τη Spotify και προκαλεί 400.
     """
     track_ids = []
     url = f"https://api.spotify.com/v1/albums/{album_id}/tracks"
-    params = {"limit": 50, "offset": 0, "market": market}
+    params = {"limit": 50, "offset": 0}
+    if market:
+        params["market"] = market
 
     while url:
         data = _spotify_api_get(token, url, params=params)
@@ -412,22 +422,26 @@ def fetch_album_tracks(token, album_id, artist_id, market="from_token"):
     return track_ids
 
 
-def fetch_tracks_by_ids(token, track_ids, market="from_token"):
+def fetch_tracks_by_ids(token, track_ids, market=None):
     """
     Batch-φέρνει πλήρη track objects (με ISRC μέσα στο external_ids) σε chunks
     των 50 — αυτό είναι το μέγιστο όριο ids που δέχεται το /v1/tracks.
     Τα simplified track objects που επιστρέφει το /v1/albums/{id}/tracks ΔΕΝ
     περιέχουν ISRC, γι' αυτό χρειάζεται αυτό το δεύτερο, batched βήμα.
+    Ούτε εδώ στέλνουμε market="from_token" (καταργήθηκε από τη Spotify).
     """
     tracks_by_id = {}
     chunk_size = 50
 
     for i in range(0, len(track_ids), chunk_size):
         chunk = track_ids[i : i + chunk_size]
+        params = {"ids": ",".join(chunk)}
+        if market:
+            params["market"] = market
         data = _spotify_api_get(
             token,
             "https://api.spotify.com/v1/tracks",
-            params={"ids": ",".join(chunk), "market": market},
+            params=params,
         )
         for track in data.get("tracks") or []:
             if not track:
