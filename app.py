@@ -864,7 +864,7 @@ with st.sidebar:
     
     if token:
         st.success("🟢 Συνδεδεμένος", icon="🎧")
-        if st.button("🚪 Αποσύνδεση", use_container_width=True):
+        if st.button("Αποσύνδεση", use_container_width=True):
             st.session_state.pop("token_data", None)
             st.rerun()
     else:
@@ -874,12 +874,12 @@ with st.sidebar:
     st.caption("Stay Independent © 2026")
 
 # --- Main Content UI ---
-st.title("Catalog Generator ⚡")
+st.title("Catalog Generator")
 
 if not token:
     st.info("Για να ξεκινήσετε, απαιτείται ταυτοποίηση. Θα ανακτηθούν οι δικές σας και οι collaborative playlists.")
     auth_url = build_authorize_url(client_id, redirect_uri)
-    st.link_button("🔑 Σύνδεση με Spotify", auth_url, type="primary")
+    st.link_button("Σύνδεση με Spotify", auth_url, type="primary")
     st.stop()
 
 # --- Step 1: IPI List (Ground Truth) ---
@@ -914,7 +914,7 @@ with col_sel:
     selected_playlist = next(p for p in playlists if p["name"] == selected_name)
 
 with col_btn:
-    generate_trigger = st.button("🚀 Δημιουργία Catalog", type="primary", use_container_width=True)
+    generate_trigger = st.button("Δημιουργία Catalog", type="primary", use_container_width=True)
 
 # --- Step 3: Generation (Live Activities) & Dashboard ---
 if generate_trigger:
