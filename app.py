@@ -1000,7 +1000,7 @@ if selected_menu == "Γεννήτρια Catalog":
 
             output_filename = make_catalog_filename(selected_playlist["name"])
             
-            # ΠΡΟΣΘΗΚΗ 2: Αποθήκευση στο Supabase Storage
+# ΠΡΟΣΘΗΚΗ 2: Αποθήκευση στο Supabase Storage
             supabase = init_supabase()
             file_public_url = None
             
@@ -1030,7 +1030,7 @@ if selected_menu == "Γεννήτρια Catalog":
                         "file_url": file_public_url # Η νέα στήλη
                     }).execute()
                     
-               except Exception as e:
+                except Exception as e:
                     st.error(f"🚨 Σφάλμα επικοινωνίας με το Supabase: {e}")
                     st.toast("Δεν ενημερώθηκε το ιστορικό.", icon="⚠️")
 
