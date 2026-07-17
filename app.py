@@ -879,7 +879,7 @@ with st.sidebar:
     else:
         st.markdown("## 🎵 Stay Independent")
     
-    st.markdown("### Stay Independent\n*Catalog Generator*")
+    st.markdown("### Stay Independent\n*Multi-tool*")
     st.divider()
     
     selected_menu = None
