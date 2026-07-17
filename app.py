@@ -795,14 +795,44 @@ def make_catalog_filename(playlist_name):
     return f"Catalog_{safe_name}_{date_part}.xlsx"
 
 # --------------------------------------------------------------------------
-# Streamlit UI
+# Streamlit UI - Rich & Interactive
 # --------------------------------------------------------------------------
-# Ορισμός σελίδας με wide layout για μεγαλύτερη άνεση
+import pandas as pd # Χρήσιμο για το διαδραστικό Dataframe, πρόσθεσέ το στα imports σου πάνω-πάνω
+
 st.set_page_config(
-    page_title="Stay Independent Catalog Generator", 
-    page_icon="StayLogo2.jpg",
-    layout="wide"
+    page_title="Stay Independent | Catalog Generator", 
+    page_icon="🎵",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+
+# --- Ενσωμάτωση Custom CSS για πιο όμορφο UI ---
+st.markdown("""
+    <style>
+    /* Styling για τα κύρια κουμπιά */
+    .stButton>button {
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    /* Styling για το Live Activity status */
+    .live-activity-box {
+        padding: 15px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #2a2a2a, #1f1f1f);
+        border-left: 5px solid #1DB954; /* Spotify Green */
+        margin-bottom: 20px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    /* Hide top padding */
+    .block-container {
+        padding-top: 2rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 client_id, client_secret, redirect_uri = get_config()
 
@@ -815,6 +845,7 @@ elif "code" in query_params and "token_data" not in st.session_state:
     try:
         token_data = exchange_code_for_token(client_id, client_secret, redirect_uri, query_params["code"])
         st.session_state["token_data"] = token_data
+        st.toast("Επιτυχής σύνδεση στο Spotify!", icon="✅")
     except requests.HTTPError as e:
         st.error(f"Σφάλμα κατά την ανταλλαγή του code: {e}")
     st.query_params.clear()
@@ -824,46 +855,46 @@ token = get_valid_token()
 
 # --- Sidebar UI ---
 with st.sidebar:
-    st.image("StayLogo2.jpg", width=180)
-    st.title("MMS Matrix")
-    st.caption("The Catalog Utility")
+    st.image("StayLogo2.jpg", use_container_width=True)
+    st.markdown("### MMS Matrix\n*The Catalog Utility*")
     st.divider()
     
     if token:
-        st.success("Επιτυχής σύνδεση στο Spotify")
+        st.success("🟢 Συνδεδεμένος", icon="🎧")
         if st.button("🚪 Αποσύνδεση", use_container_width=True):
             st.session_state.pop("token_data", None)
             st.rerun()
     else:
-        st.warning("Απαιτείται σύνδεση")
+        st.warning("🔴 Απαιτείται σύνδεση")
+        
+    st.divider()
+    st.caption("Stay Independent © 2026")
 
 # --- Main Content UI ---
-st.title("Catalog Generator")
+st.title("Catalog Generator ⚡")
 
 if not token:
-    st.info("Συνδεθείτε με τον λογαριασμό σας στο Spotify για να ξεκινήσετε. Θα εμφανιστούν οι δικές σας και οι collaborative playlists.")
+    st.info("Για να ξεκινήσετε, απαιτείται ταυτοποίηση. Θα ανακτηθούν οι δικές σας και οι collaborative playlists.")
     auth_url = build_authorize_url(client_id, redirect_uri)
     st.link_button("🔑 Σύνδεση με Spotify", auth_url, type="primary")
     st.stop()
 
-# --- Step 1: IPI List ---
-st.subheader("1. Δεδομένα IPI (Ground Truth)")
+# --- Step 1: IPI List (Ground Truth) ---
 try:
     private_ipi_config = get_private_ipi_config()
     with st.spinner("Φόρτωση IPI LIST από το GitHub..."):
         ipi_file_bytes = fetch_private_ipi_list_bytes(**private_ipi_config)
         ipi_lookup, ipi_source_rows = build_ipi_lookup_from_bytes(ipi_file_bytes)
-    st.success(f"✔️ Το IPI LIST φορτώθηκε επιτυχώς: {ipi_source_rows} εγγραφές είναι έτοιμες για αντιστοίχιση.")
+    # Αθόρυβη επιβεβαίωση με toast αντί για τεράστιο πράσινο κουτί
+    st.toast(f"IPI LIST Φορτώθηκε: {ipi_source_rows} εγγραφές", icon="📚")
 except Exception as e:
     st.error("Αδυναμία φόρτωσης IPI LIST από το ιδιωτικό repository.")
     st.caption(f"Λεπτομέρεια συστήματος: {e}")
     st.stop()
 
 # --- Step 2: Playlist Selection ---
-st.subheader("2. Επιλογή Playlist & Παραγωγή Excel")
 try:
-    with st.spinner("Ανάκτηση των playlists σας..."):
-        playlists = fetch_user_playlists(token)
+    playlists = fetch_user_playlists(token)
 except requests.HTTPError as e:
     st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
     st.stop()
@@ -872,36 +903,44 @@ if not playlists:
     st.warning("Δεν βρέθηκαν playlists στον λογαριασμό σας.")
     st.stop()
 
+st.markdown("### Επιλογή Δεδομένων")
 playlist_names = [p["name"] for p in playlists]
 
-# Χρήση στηλών για πιο μαζεμένο Layout
-col_sel, col_btn = st.columns([3, 1])
+col_sel, col_btn = st.columns([3, 1], vertical_alignment="bottom")
 with col_sel:
-    selected_name = st.selectbox("Επιλέξτε playlist για εξαγωγή:", playlist_names, label_visibility="collapsed")
+    selected_name = st.selectbox("Επιλέξτε Playlist για εξαγωγή:", playlist_names)
     selected_playlist = next(p for p in playlists if p["name"] == selected_name)
 
 with col_btn:
-    generate_trigger = st.button("Δημιουργία Excel ⚡", type="primary", use_container_width=True)
+    generate_trigger = st.button("🚀 Δημιουργία Catalog", type="primary", use_container_width=True)
 
-# --- Step 3: Generation & Feedback ---
+# --- Step 3: Generation (Live Activities) & Dashboard ---
 if generate_trigger:
     st.divider()
     try:
-        with st.spinner("Ανάκτηση τραγουδιών από Spotify..."):
-            tracks = fetch_playlist_tracks(token, selected_playlist["id"])
+        tracks = fetch_playlist_tracks(token, selected_playlist["id"])
 
         if not tracks:
             st.warning("Η playlist είναι κενή.")
             st.stop()
 
-        # Οπτικό Feedback
+        # --- LIVE ACTIVITY UI ---
+        st.markdown("### 📡 Live Activity")
+        live_status = st.empty()
         progress_bar = st.progress(0.0)
-        status_placeholder = st.empty()
 
         def update_generation_progress(current, total, title):
-            progress_value = (current - 1) / max(total, 1)
+            progress_value = current / max(total, 1)
             progress_bar.progress(progress_value)
-            status_placeholder.markdown(f"⏳ **Επεξεργασία:** {title}")
+            
+            # Μορφοποίηση του Live Activity Box
+            html_content = f"""
+            <div class="live-activity-box">
+                <span style="color:#aaa; font-size:14px;">Επεξεργασία {current} από {total}</span><br>
+                <strong style="font-size:18px;">🎵 {title}</strong>
+            </div>
+            """
+            live_status.markdown(html_content, unsafe_allow_html=True)
 
         buffer, report = generate_new_catalog(
             tracks,
@@ -909,41 +948,71 @@ if generate_trigger:
             progress_callback=update_generation_progress,
         )
 
-        progress_bar.progress(1.0)
-        status_placeholder.empty()
+        # Καθαρισμός του Live Activity όταν τελειώσει
+        live_status.empty()
+        progress_bar.empty()
+        st.toast("Η δημιουργία του Excel ολοκληρώθηκε!", icon="🎉")
 
-        # --- Dashboard Αποτελεσμάτων ---
-        st.subheader("Σύνοψη Διαδικασίας")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Σύνολο Τραγουδιών", len(tracks))
-        m2.metric("Επιτυχείς Αντιστοιχίσεις IPI", report.get('ipi_matches', 0))
-        m3.metric("Σφάλματα / Προειδοποιήσεις", len(report['health_warnings']) + len(report['tidal_fallbacks']))
+        # --- ΔΙΑΔΡΑΣΤΙΚΟ DASHBOARD (Tabs) ---
+        st.markdown("### 📊 Αποτελέσματα & Εξαγωγή")
+        tab_summary, tab_preview, tab_logs = st.tabs(["📋 Σύνοψη", "👀 Προεπισκόπηση Δεδομένων", "⚠️ Logs & Προειδοποιήσεις"])
 
-        # --- Expanders για Logs (έτσι δεν πιάνουν χώρο αν είναι πολλά) ---
-        if report["health_warnings"]:
-            with st.expander("⚠️ Προειδοποιήσεις ISRC (Μη έγκυρο format)", expanded=False):
+        with tab_summary:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Σύνολο Τραγουδιών", len(tracks))
+            m2.metric("Επιτυχείς Αντιστοιχίσεις IPI", report.get('ipi_matches', 0))
+            m3.metric("Ενέργειες που απαιτούν προσοχή", len(report['health_warnings']) + len(report['tidal_fallbacks']))
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            output_filename = make_catalog_filename(selected_playlist["name"])
+            
+            _, col_down, _ = st.columns([1, 2, 1])
+            with col_down:
+                st.download_button(
+                    label="⬇️ Λήψη Ολοκληρωμένου Excel",
+                    data=buffer,
+                    file_name=output_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary"
+                )
+
+        with tab_preview:
+            if report["filled"]:
+                # Μετατροπή της λίστας σε DataFrame για να είναι searchable/sortable
+                df_preview = pd.DataFrame(report["filled"])
+                # Προσαρμογή στηλών για πιο όμορφη εμφάνιση
+                df_preview["contributors"] = df_preview["contributors"].apply(lambda x: ", ".join(x))
+                st.dataframe(
+                    df_preview,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "title": "Τίτλος Τραγουδιού",
+                        "contributors": "Δημιουργοί",
+                        "isrc": "ISRC",
+                        "source": "Πηγή Credits",
+                        "notes": "Σημειώσεις"
+                    }
+                )
+            else:
+                st.info("Δεν υπάρχουν δεδομένα για προεπισκόπηση.")
+
+        with tab_logs:
+            if report["health_warnings"]:
+                st.error(f"Βρέθηκαν {len(report['health_warnings'])} προβληματικά ISRC")
                 for title, isrc in report["health_warnings"]:
                     st.write(f"• **{title}** | ISRC: `{isrc}`")
+            else:
+                st.success("Κανένα πρόβλημα με τα ISRC! Όλα έχουν το σωστό format.")
+                
+            st.divider()
 
-        if report["tidal_fallbacks"]:
-            with st.expander("⚠️ Fallbacks σε Spotify (Δεν βρέθηκαν στο Tidal)", expanded=False):
-                for title in report["tidal_fallbacks"]:
-                    st.write(f"• **{title}**")
-
-        # --- Download Button ---
-        st.success("✅ Το αρχείο Excel είναι έτοιμο προς λήψη!")
-        output_filename = make_catalog_filename(selected_playlist["name"])
-        
-        # Κεντράρισμα του κουμπιού λήψης
-        _, col_down, _ = st.columns([1, 2, 1])
-        with col_down:
-            st.download_button(
-                label="⬇️ Λήψη Catalog Excel",
-                data=buffer,
-                file_name=output_filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+            if report["tidal_fallbacks"]:
+                st.warning(f"Βρέθηκαν {len(report['tidal_fallbacks'])} τραγούδια χωρίς Tidal Credits (Spotify Fallback)")
+                with st.expander("Προβολή λίστας τραγουδιών", expanded=False):
+                    for title in report["tidal_fallbacks"]:
+                        st.write(f"• **{title}**")
 
     except requests.HTTPError as e:
         st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
