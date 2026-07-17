@@ -275,30 +275,42 @@ def get_artist_name(token, artist_id):
 
 def fetch_artist_albums(token, artist_id):
     """
-    Σαρώνει albums, singles & EPs, compilations και appears-on ενός καλλιτέχνη.
-
-    ΣΗΜΑΝΤΙΚΟ (Spotify Web API changes, Φεβρουάριος 2026): το limit αυτού του
-    endpoint μειώθηκε από max 50 σε max 10 (default 5). Στέλνοντας limit=50
-    η Spotify απαντά με 400 "Invalid limit" - το πρόβλημα δεν είναι ότι το
-    limit λείπει ή είναι λάθος τύπου, απλά υπερβαίνει το νέο, χαμηλότερο όριο.
-    Γι' αυτό εδώ χρησιμοποιούμε ARTIST_ALBUMS_PAGE_LIMIT = 10 και σελιδοποιούμε
-    κανονικά μέσω του πεδίου "next" μέχρι να μαζέψουμε όλα τα albums.
+    Ανάκτηση όλων των Albums, EPs, Singles, και Appears On ενός καλλιτέχνη.
+    Χειροκίνητη σελιδοποίηση (manual pagination) για να αποφύγουμε τα bugs 
+    του Spotify με το 'next' link και το 'Invalid limit'.
     """
     albums = set()
-    url = f"https://api.spotify.com/v1/artists/{artist_id}/albums"
-    params = {
-        "include_groups": "album,single,compilation,appears_on",
-        "limit": ARTIST_ALBUMS_PAGE_LIMIT,
-        "offset": 0,
-    }
-    while url:
+    limit = 10
+    offset = 0
+    
+    while True:
+        url = f"https://api.spotify.com/v1/artists/{artist_id}/albums"
+        params = {
+            "include_groups": "album,single,compilation,appears_on",
+            "limit": limit,
+            "offset": offset,
+        }
+        
         data = _api_get(token, url, params=params)
-        for item in data.get("items", []):
+        items = data.get("items", [])
+        
+        # Αν δεν υπάρχουν άλλα items, σταματάμε
+        if not items:
+            break
+            
+        for item in items:
             aid = item.get("id")
             if aid and aid != "null":
                 albums.add(aid)
-        url = data.get("next")
-        params = None  # το "next" έχει ήδη πλήρες query string
+        
+        # Ελέγχουμε αν υπάρχει επόμενη σελίδα σύμφωνα με το Spotify
+        if not data.get("next"):
+            break
+            
+        # Αντί να πάρουμε το 'next' URL του Spotify, αυξάνουμε εμείς το offset 
+        # για να διατηρήσουμε τον απόλυτο έλεγχο στο limit=10
+        offset += limit
+        
     return list(albums)
 
 def fetch_tracks_from_albums(token, album_ids, status_placeholder=None):
