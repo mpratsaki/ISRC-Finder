@@ -1030,8 +1030,9 @@ if selected_menu == "Γεννήτρια Catalog":
                         "file_url": file_public_url # Η νέα στήλη
                     }).execute()
                     
-                except Exception as e:
-                    st.toast(f"Προειδοποίηση: Το Excel δημιουργήθηκε αλλά δεν αποθηκεύτηκε στο Cloud: {e}", icon="⚠️")
+               except Exception as e:
+                    st.error(f"🚨 Σφάλμα επικοινωνίας με το Supabase: {e}")
+                    st.toast("Δεν ενημερώθηκε το ιστορικό.", icon="⚠️")
 
             # Εμφάνιση Αποτελεσμάτων
             st.markdown("### 📊 Αποτελέσματα & Εξαγωγή")
