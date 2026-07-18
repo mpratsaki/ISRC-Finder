@@ -36,6 +36,7 @@ from core.auth_spotify import (
 )
 from tools.page_catalog import page_catalog_generator
 from tools.page_history import page_history
+from tools.page_isrc_finder import page_isrc_finder
 from tools.page_metadata import page_metadata_health
 from tools.page_musicbrainz import page_musicbrainz
 from tools.page_settings import page_settings
@@ -154,6 +155,7 @@ def render_sidebar(spotify_user):
     # --- Top section: Εργαλεία ---
     st.sidebar.markdown("### 🛠️ Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
+    _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
     _nav_button("MusicBrainz Explorer", "MusicBrainz Explorer")
 
@@ -218,6 +220,8 @@ current_page = st.session_state.current_page
 
 if current_page == "Γεννήτρια Catalog":
     page_catalog_generator(token, spotify_user)
+elif current_page == "ISRC Finder":
+    page_isrc_finder(token)
 elif current_page == "Metadata Health":
     page_metadata_health()
 elif current_page == "MusicBrainz Explorer":
