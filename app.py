@@ -73,7 +73,7 @@ APP_VERSION = "Stay Independent Tool v2.0 - Swiss Army Knife Edition"
 # --------------------------------------------------------------------------
 MB_APP_NAME = "StayIndependentTool"
 MB_APP_VERSION = "2.0"
-MB_CONTACT = "contact@yourdomain.com"  # <-- ΑΛΛΑΞΕ ΤΟ σε πραγματικό email
+MB_CONTACT = "johnnakas03@gmail.com"  # <-- ΑΛΛΑΞΕ ΤΟ σε πραγματικό email
 MB_CACHE_TTL_SECONDS = 3600
 MB_UUID_PATTERN = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -898,22 +898,6 @@ def init_supabase() -> Client:
 def fetch_current_user(token):
     data = _api_get(token, "https://api.spotify.com/v1/me")
     return data.get("display_name") or data.get("id") or "Άγνωστος Χρήστης"
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_odesli_links(track_url):
-    """
-    Calls the free Odesli (song.link) API and returns the parsed JSON.
-    GET https://api.odesli.co/v1-alpha.1/links?url=<encoded url>
-    """
-    resp = requests.get(
-        "https://api.odesli.co/v1-alpha.1/links",
-        params={"url": track_url},
-        timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
 
 def _scan_ipi_health(ipi_lookup):
     """
@@ -1992,7 +1976,7 @@ def render_sidebar(spotify_user):
     st.sidebar.markdown("### 🛠️ Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("Metadata Health", "Metadata Health")
-    _nav_button("MusicBrainz Explorer 🚧", "MusicBrainz Explorer")
+    _nav_button("MusicBrainz Explorer", "MusicBrainz Explorer")
 
     # --- Spacer to push the System block lower ---
     st.sidebar.markdown("<div style='height: 2.5rem'></div>", unsafe_allow_html=True)
