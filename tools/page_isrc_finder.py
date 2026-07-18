@@ -1,9 +1,8 @@
 """
 tools/page_isrc_finder.py
 
-"ISRC Finder" page: takes an ISRC code and resolves it to the matching
-Spotify track(s) via the Search API, surfacing the top match plus any
-alternate releases/markets sharing the same ISRC.
+"ISRC Finder" page: takes a Spotify track link (or URI) and resolves it to
+its ISRC code via the Spotify "Get Track" API, along with basic track info.
 """
 
 import re
@@ -13,69 +12,68 @@ import streamlit as st
 
 from core.auth_spotify import _api_get
 
-ISRC_PATTERN = re.compile(r"^[A-Z0-9]{12}$")
+# Matches a 22-char base62 Spotify track ID out of:
+#   https://open.spotify.com/track/<id>?si=...
+#   https://open.spotify.com/intl-xx/track/<id>
+#   spotify:track:<id>
+#   or a bare <id> pasted directly
+SPOTIFY_TRACK_ID_PATTERN = re.compile(r"track[/:]([A-Za-z0-9]{22})")
+BARE_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{22}$")
 
 
-def _clean_isrc(raw_value):
-    return re.sub(r"[\s-]+", "", str(raw_value or "")).strip().upper()
+def _extract_track_id(raw_value):
+    text = str(raw_value or "").strip()
+    if not text:
+        return None
+
+    match = SPOTIFY_TRACK_ID_PATTERN.search(text)
+    if match:
+        return match.group(1)
+
+    if BARE_ID_PATTERN.match(text):
+        return text
+
+    return None
 
 
 def _track_artists(item):
     return ", ".join(a.get("name", "") for a in item.get("artists", []) if a.get("name"))
 
 
-def _render_track_card(item):
-    track_name = item.get("name") or "—"
-    artists = _track_artists(item) or "—"
-    album = (item.get("album") or {}).get("name") or "—"
-    spotify_url = (item.get("external_urls") or {}).get("spotify")
-
-    st.markdown(f"**{track_name}**")
-    st.write(f"🎤 Καλλιτέχνης/ες: {artists}")
-    st.write(f"💿 Άλμπουμ: {album}")
-    if spotify_url:
-        st.link_button("🔗 Άνοιγμα στο Spotify", spotify_url, width="stretch")
-    else:
-        st.caption("Δεν βρέθηκε Spotify link για αυτό το track.")
-
-
 def page_isrc_finder(token):
     st.title("🔎 ISRC Finder")
-    st.caption("Βρείτε το αντίστοιχο Spotify track link(s) από ένα ISRC code.")
+    st.caption("Επικολλήστε ένα Spotify track link (ή URI) για να βρείτε το ISRC του.")
 
     col_input, col_btn = st.columns([3, 1], vertical_alignment="bottom")
     with col_input:
-        isrc_input = st.text_input(
-            "ISRC",
-            placeholder="π.χ. GBAYE0601498",
+        link_input = st.text_input(
+            "Spotify Track Link",
+            placeholder="https://open.spotify.com/track/xxxxxxxxxxxxxxxxxxxxxx",
             key="isrc_finder_input",
         )
     with col_btn:
-        search_trigger = st.button("Αναζήτηση", type="primary", width="stretch")
+        search_trigger = st.button("Εύρεση ISRC", type="primary", width="stretch")
 
     if not search_trigger:
         return
 
-    clean_isrc = _clean_isrc(isrc_input)
+    track_id = _extract_track_id(link_input)
 
-    if not clean_isrc:
-        st.warning("Εισάγετε ένα ISRC.")
+    if not link_input.strip():
+        st.warning("Επικολλήστε ένα Spotify track link.")
         return
 
-    if not ISRC_PATTERN.match(clean_isrc):
+    if not track_id:
         st.error(
-            f"Το `{clean_isrc}` δεν φαίνεται να είναι έγκυρο ISRC "
-            "(αναμένονται 12 αλφαριθμητικοί χαρακτήρες, π.χ. CCXXXYYNNNNN)."
+            "Δεν αναγνωρίστηκε έγκυρο Spotify track ID. Χρησιμοποιήστε ένα link της "
+            "μορφής `https://open.spotify.com/track/...`, ένα URI `spotify:track:...`, "
+            "ή το ίδιο το track ID."
         )
         return
 
     try:
         with st.spinner("Αναζήτηση στο Spotify..."):
-            data = _api_get(
-                token,
-                "https://api.spotify.com/v1/search",
-                params={"q": f"isrc:{clean_isrc}", "type": "track", "limit": 5},
-            )
+            data = _api_get(token, f"https://api.spotify.com/v1/tracks/{track_id}")
     except requests.HTTPError as e:
         st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
         return
@@ -83,23 +81,22 @@ def page_isrc_finder(token):
         st.error(f"Μη αναμενόμενο σφάλμα: {e}")
         return
 
-    items = data.get("tracks", {}).get("items", [])
-
-    if not items:
-        st.warning(f"Δεν βρέθηκε κανένα Spotify track για το ISRC `{clean_isrc}`.")
-        return
+    isrc = (data.get("external_ids") or {}).get("isrc")
+    track_name = data.get("name") or "—"
+    artists = _track_artists(data) or "—"
+    album = (data.get("album") or {}).get("name") or "—"
+    spotify_url = (data.get("external_urls") or {}).get("spotify")
 
     st.divider()
 
-    top_match = items[0]
+    if isrc:
+        st.success(f"✅ Βρέθηκε ISRC για το **{track_name}**")
+        st.code(isrc, language=None)
+    else:
+        st.warning(f"Το track **{track_name}** δεν έχει καταχωρημένο ISRC στο Spotify.")
 
-    st.success(f"✅ Βρέθηκε αντιστοιχία για το ISRC `{clean_isrc}`")
-    _render_track_card(top_match)
-
-    other_matches = items[1:]
-    if other_matches:
-        with st.expander(f"Άλλες εκδόσεις αυτού του ISRC ({len(other_matches)})"):
-            for idx, item in enumerate(other_matches):
-                _render_track_card(item)
-                if idx < len(other_matches) - 1:
-                    st.divider()
+    st.markdown(f"**{track_name}**")
+    st.write(f"🎤 Καλλιτέχνης/ες: {artists}")
+    st.write(f"💿 Άλμπουμ: {album}")
+    if spotify_url:
+        st.link_button("🔗 Άνοιγμα στο Spotify", spotify_url, width="stretch")
