@@ -17,7 +17,7 @@ from core.auth_spotify import _api_get
 #   https://open.spotify.com/intl-xx/track/<id>
 #   spotify:track:<id>
 #   or a bare <id> pasted directly
-SPOTIFY_TRACK_ID_PATTERN = re.compile(r"track[/:]([A-Za-z0-9]{22})")
+SPOTIFY_TRACK_ID_PATTERN = re.compile(r"track[/:]([A-Za-z0-9]{22})", re.IGNORECASE)
 BARE_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{22}$")
 
 
@@ -75,7 +75,16 @@ def page_isrc_finder(token):
         with st.spinner("Αναζήτηση στο Spotify..."):
             data = _api_get(token, f"https://api.spotify.com/v1/tracks/{track_id}")
     except requests.HTTPError as e:
-        st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
+        status_code = getattr(e.response, "status_code", None)
+        if status_code == 404:
+            st.error(
+                f"Το Spotify δεν βρήκε track με ID `{track_id}`. Τα Spotify track IDs "
+                "είναι case-sensitive (πεζά/κεφαλαία έχουν σημασία) — αν το link έχει "
+                "μετατραπεί ολόκληρο σε κεφαλαία (π.χ. από αυτόματη διόρθωση), "
+                "επικολλήστε ξανά το αρχικό link απευθείας από το Spotify."
+            )
+        else:
+            st.error(f"Σφάλμα επικοινωνίας με το Spotify: {e}")
         return
     except Exception as e:
         st.error(f"Μη αναμενόμενο σφάλμα: {e}")
