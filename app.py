@@ -1991,9 +1991,7 @@ def render_sidebar(spotify_user):
     # --- Top section: Εργαλεία ---
     st.sidebar.markdown("### 🛠️ Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
-    _nav_button("Musixmatch Sync Checker", "Musixmatch Sync Checker")
     _nav_button("Metadata Health", "Metadata Health")
-    _nav_button("Smart Links Generator", "Smart Links Generator")
     _nav_button("MusicBrainz Explorer 🚧", "MusicBrainz Explorer")
 
     # --- Spacer to push the System block lower ---
@@ -2057,12 +2055,8 @@ current_page = st.session_state.current_page
 
 if current_page == "Γεννήτρια Catalog":
     page_catalog_generator(token, spotify_user)
-elif current_page == "Musixmatch Sync Checker":
-    page_musixmatch_checker()
 elif current_page == "Metadata Health":
     page_metadata_health()
-elif current_page == "Smart Links Generator":
-    page_smart_links()
 elif current_page == "MusicBrainz Explorer":
     page_musicbrainz()
 elif current_page == "Ιστορικό & Αρχεία":
