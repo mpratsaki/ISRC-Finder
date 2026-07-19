@@ -39,6 +39,7 @@ from tools.page_history import page_history
 from tools.page_isrc_finder import page_isrc_finder
 from tools.page_metadata import page_metadata_health
 from tools.page_musicbrainz import page_musicbrainz
+from tools.page_musicbrainz_search import page_musicbrainz_search
 from tools.page_settings import page_settings
 
 st.set_page_config(
@@ -153,21 +154,23 @@ def render_sidebar(spotify_user):
         st.divider()
 
     # --- Top section: Εργαλεία ---
-    st.sidebar.markdown("### Εργαλεία")
+    st.sidebar.markdown("### 🛠️ Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
+    _nav_button("MusicBrainz Universal Search", "MusicBrainz Search")
     _nav_button("MusicBrainz Explorer (Beta)", "MusicBrainz Explorer")
 
     # --- Spacer to push the System block lower ---
+    st.sidebar.markdown("<div style='height: 2.5rem'></div>", unsafe_allow_html=True)
     st.sidebar.divider()
 
     # --- Bottom section: Σύστημα ---
-    st.sidebar.markdown("### Σύστημα")
+    st.sidebar.markdown("### ⚙️ Σύστημα")
     _nav_button("Ιστορικό & Αρχεία", "Ιστορικό & Αρχεία")
     _nav_button("Ρυθμίσεις", "Ρυθμίσεις")
 
-    if st.sidebar.button("Αποσύνδεση", width="stretch", key="nav_logout"):
+    if st.sidebar.button("🚪 Αποσύνδεση", width="stretch", key="nav_logout"):
         st.session_state.pop("token_data", None)
         st.session_state.pop("current_page", None)
         st.rerun()
@@ -223,6 +226,8 @@ elif current_page == "ISRC Finder":
     page_isrc_finder(token)
 elif current_page == "Metadata Health":
     page_metadata_health()
+elif current_page == "MusicBrainz Search":
+    page_musicbrainz_search()
 elif current_page == "MusicBrainz Explorer":
     page_musicbrainz()
 elif current_page == "Ιστορικό & Αρχεία":
