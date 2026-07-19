@@ -161,7 +161,7 @@ def _mb_error_message(exc):
 
 # --- The page -------------------------------------------------------------
 def page_musicbrainz():
-    st.title("🧬 MusicBrainz Explorer")
+    st.title("MusicBrainz Explorer")
     st.caption(
         "Deep metadata extraction από την open-source μουσική εγκυκλοπαίδεια. "
         "Τα αποτελέσματα αποθηκεύονται προσωρινά για 1 ώρα."
@@ -175,7 +175,7 @@ def page_musicbrainz():
     # TAB 1 — Artist Auditor
     # ======================================================================
     with tab_artist:
-        st.markdown("### Έλεγχος προφίλ καλλιτέχνη")
+        st.markdown("Έλεγχος προφίλ καλλιτέχνη")
         st.caption(
             "Επικολλήστε MusicBrainz Artist ID ή ολόκληρο URL — το MBID εξάγεται αυτόματα."
         )
@@ -228,7 +228,7 @@ def page_musicbrainz():
                     i4.metric("Ενεργός από", life_span.get("begin") or "—")
 
                     st.link_button(
-                        "✏️ Διόρθωση στο MusicBrainz",
+                        "Διόρθωση στο MusicBrainz",
                         f"https://musicbrainz.org/artist/{mbid}/edit",
                         width="stretch",
                     )
@@ -236,7 +236,7 @@ def page_musicbrainz():
                     st.divider()
 
                     # --- Aliases ----------------------------------------------
-                    st.markdown("### 🪪 Ονόματα & Aliases")
+                    st.markdown("Ονόματα & Aliases")
                     alias_list = artist.get("alias-list") or []
                     if alias_list:
                         alias_rows = []
@@ -253,14 +253,14 @@ def page_musicbrainz():
                         st.dataframe(pd.DataFrame(alias_rows), width="stretch", hide_index=True)
                     else:
                         st.warning(
-                            "⚠️ Δεν έχουν καταχωρηθεί aliases. Το legal name / performance "
+                            "Δεν έχουν καταχωρηθεί aliases. Το legal name / performance "
                             "name δεν είναι διακριτά — χρειάζεται χειροκίνητη καταχώρηση."
                         )
 
                     st.divider()
 
                     # --- External links ---------------------------------------
-                    st.markdown("### 🌐 Εξωτερικοί Σύνδεσμοι")
+                    st.markdown("Εξωτερικοί Σύνδεσμοι")
                     url_rels = artist.get("url-relation-list") or []
                     if url_rels:
                         link_rows = []
@@ -283,12 +283,12 @@ def page_musicbrainz():
                             },
                         )
                     else:
-                        st.warning("⚠️ Κανένα εξωτερικό link (socials / streaming) καταχωρημένο.")
+                        st.warning("Κανένα εξωτερικό link (socials / streaming) καταχωρημένο.")
 
                     st.divider()
 
                     # --- Discography ------------------------------------------
-                    st.markdown("### 📀 Δισκογραφία")
+                    st.markdown("Δισκογραφία")
                     releases = artist.get("release-list") or []
                     if releases:
                         release_rows = []
@@ -310,12 +310,12 @@ def page_musicbrainz():
                             "μέχρι 25 ανά κλήση — πλήρης δισκογραφία απαιτεί browse με pagination."
                         )
                     else:
-                        st.warning("⚠️ Δεν βρέθηκαν releases συνδεδεμένα με αυτόν τον καλλιτέχνη.")
+                        st.warning("Δεν βρέθηκαν releases συνδεδεμένα με αυτόν τον καλλιτέχνη.")
 
                     st.divider()
 
                     # --- Relationships ----------------------------------------
-                    st.markdown("### 🔗 Σχέσεις (Relationships)")
+                    st.markdown("Σχέσεις (Relationships)")
                     artist_rels = artist.get("artist-relation-list") or []
                     work_rels = artist.get("work-relation-list") or []
 
@@ -348,7 +348,7 @@ def page_musicbrainz():
                         st.dataframe(pd.DataFrame(rel_rows), width="stretch", hide_index=True)
                     else:
                         st.warning(
-                            "🚨 **Κανένα relationship καταχωρημένο.** Το προφίλ δεν έχει "
+                            "**Κανένα relationship καταχωρημένο.** Το προφίλ δεν έχει "
                             "συνδέσεις με works (composer / lyricist / arranger) ούτε με "
                             "άλλους καλλιτέχνες (member of, collaborator, producer). "
                             "Αυτό σημαίνει ότι **οι δημιουργοί δεν είναι ανιχνεύσιμοι "
@@ -356,7 +356,7 @@ def page_musicbrainz():
                             "χειροκίνητη επιμέλεια στο MusicBrainz."
                         )
                         st.link_button(
-                            "🔧 Προσθήκη relationships τώρα",
+                            "Προσθήκη relationships τώρα",
                             f"https://musicbrainz.org/artist/{mbid}/edit",
                             type="primary",
                             width="stretch",
@@ -416,7 +416,7 @@ def page_musicbrainz():
                             rec_id = recording.get("id") or ""
                             performers = _mb_artist_credit_phrase(recording) or "—"
 
-                            st.markdown(f"#### 🎧 {rec_index}. {rec_title}")
+                            st.markdown(f"{rec_index}. {rec_title}")
 
                             d1, d2, d3 = st.columns(3)
                             d1.markdown("**Ερμηνευτές**")
@@ -435,13 +435,13 @@ def page_musicbrainz():
 
                             if not linked_works:
                                 st.error(
-                                    "❌ **Καμία σύνδεση με Work.** Η ηχογράφηση δεν είναι "
+                                    "**Καμία σύνδεση με Work.** Η ηχογράφηση δεν είναι "
                                     "συνδεδεμένη με σύνθεση, άρα δεν υπάρχει ISWC ούτε "
                                     "ανιχνεύσιμοι composers. Κρίσιμο κενό για publishing."
                                 )
                                 if rec_id:
                                     st.link_button(
-                                        "🔧 Σύνδεση με Work στο MusicBrainz",
+                                        "Σύνδεση με Work στο MusicBrainz",
                                         f"https://musicbrainz.org/recording/{rec_id}/edit",
                                         width="stretch",
                                     )
@@ -504,14 +504,14 @@ def page_musicbrainz():
                                             )
                                         else:
                                             st.warning(
-                                                "⚠️ Το Work δεν έχει συνδεδεμένους composers / "
+                                                "Το Work δεν έχει συνδεδεμένους composers / "
                                                 "lyricists — δεν μπορεί να επιβεβαιωθεί η "
                                                 "πατρότητα του έργου."
                                             )
 
                                         if work_id:
                                             st.link_button(
-                                                "✏️ Επεξεργασία Work",
+                                                "Επεξεργασία Work",
                                                 f"https://musicbrainz.org/work/{work_id}/edit",
                                                 width="stretch",
                                             )
@@ -554,7 +554,7 @@ def page_musicbrainz():
                 if results is not None:
                     if not results:
                         st.error(
-                            f"❌ Το barcode `{barcode}` **δεν υπάρχει** στο MusicBrainz. "
+                            f"Το barcode `{barcode}` **δεν υπάρχει** στο MusicBrainz. "
                             "Η κυκλοφορία δεν είναι ευρετηριασμένη διεθνώς — "
                             "χάνεται σε aggregators και μουσικές εφαρμογές."
                         )
@@ -586,7 +586,7 @@ def page_musicbrainz():
                         st.divider()
 
                         # --- Release header ---------------------------------
-                        st.markdown(f"## 💿 {release.get('title') or '—'}")
+                        st.markdown(f"{release.get('title') or '—'}")
                         st.caption(_mb_artist_credit_phrase(release) or "—")
 
                         # Label info
@@ -612,14 +612,14 @@ def page_musicbrainz():
                             st.markdown("**Label**")
                             st.write(", ".join(label_names) if label_names else "—")
                             if not label_names:
-                                st.caption("⚠️ Δεν έχει καταχωρηθεί δισκογραφική.")
+                                st.caption("Δεν έχει καταχωρηθεί δισκογραφική.")
                         with l2:
                             st.markdown("**Catalog Number**")
                             st.write(", ".join(catalog_numbers) if catalog_numbers else "—")
 
                         if release_id:
                             st.link_button(
-                                "🔗 Προβολή στο MusicBrainz",
+                                "Προβολή στο MusicBrainz",
                                 f"https://musicbrainz.org/release/{release_id}",
                                 width="stretch",
                             )
@@ -627,7 +627,7 @@ def page_musicbrainz():
                         st.divider()
 
                         # --- Tracklist --------------------------------------
-                        st.markdown("### 🎵 Tracklist")
+                        st.markdown("Tracklist")
                         media_list = release.get("medium-list") or []
                         track_rows = []
 
@@ -655,6 +655,6 @@ def page_musicbrainz():
                             st.caption(f"Σύνολο: {len(track_rows)} tracks σε {len(media_list)} medium(s).")
                         else:
                             st.warning(
-                                "⚠️ Η κυκλοφορία υπάρχει αλλά **δεν έχει tracklist**. "
+                                "Η κυκλοφορία υπάρχει αλλά **δεν έχει tracklist**. "
                                 "Χρειάζεται καταχώρηση των κομματιών για να είναι χρήσιμη."
                             )
