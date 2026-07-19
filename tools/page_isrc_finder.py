@@ -41,7 +41,7 @@ def _track_artists(item):
 
 
 def page_isrc_finder(token):
-    st.title("🔎 ISRC Finder")
+    st.title("ISRC Finder")
     st.caption("Επικολλήστε ένα Spotify track link (ή URI) για να βρείτε το ISRC του.")
 
     col_input, col_btn = st.columns([3, 1], vertical_alignment="bottom")
