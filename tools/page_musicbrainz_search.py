@@ -1,27 +1,35 @@
 """
 tools/page_musicbrainz_search.py
 
-Phase 1 — MusicBrainz Universal Search landing page.
+Phase 2 — MusicBrainz Universal Search landing page.
 
-The page searches the six requested core entity types and lets the user choose
-one unambiguous result. Artist, Recording and Release selections can be handed
-off to the existing MusicBrainz Explorer pipelines through Streamlit session
-state. Label, Work and Release Group selections remain search-and-open results
-until their dedicated Phase 2 views are implemented.
+The page searches the six core entity types used by the app, presents a full
+disambiguation table and routes every selected result to a dedicated in-app
+view:
+- Artist, Recording and Release → established MusicBrainz Explorer pipelines
+- Label → Label Auditor
+- Release Group → Album Editions view
+- Work → standalone Work Explorer
 """
-
-import hashlib
 
 import musicbrainzngs
 import pandas as pd
 import streamlit as st
 
+from tools.musicbrainz_entity_ui import (
+    area_name,
+    result_artist,
+    result_date,
+    result_identifier,
+    result_title,
+    result_type,
+    search_fingerprint,
+    search_result_row,
+    search_selection_label,
+)
 from utils.musicbrainz_api import (
-    mb_artist_credit_phrase,
     mb_entity_url,
     mb_error_message,
-    mb_format_length,
-    mb_iswc,
     mb_search_entities,
 )
 
@@ -43,194 +51,65 @@ ENTITY_NAMES = {
     "work": "Μουσικό έργο",
 }
 
-EXPLORER_HANDOFF_TARGETS = {
-    "artist": "Artist Auditor",
-    "recording": "ISRC / ISWC Resolver",
-    "release": "Catalog Barcode Scanner",
+HANDOFF_TARGETS = {
+    "artist": {
+        "label": "Artist Auditor",
+        "page": "MusicBrainz Explorer",
+        "session_key": "mb_explorer_handoff",
+    },
+    "recording": {
+        "label": "ISRC / ISWC Resolver",
+        "page": "MusicBrainz Explorer",
+        "session_key": "mb_explorer_handoff",
+    },
+    "release": {
+        "label": "Catalog Barcode Scanner",
+        "page": "MusicBrainz Explorer",
+        "session_key": "mb_explorer_handoff",
+    },
+    "label": {
+        "label": "Label Auditor",
+        "page": "MusicBrainz Label Auditor",
+        "session_key": "mb_label_handoff",
+    },
+    "release-group": {
+        "label": "Album Editions view",
+        "page": "MusicBrainz Release Group",
+        "session_key": "mb_release_group_handoff",
+    },
+    "work": {
+        "label": "Work Explorer",
+        "page": "MusicBrainz Work Explorer",
+        "session_key": "mb_work_handoff",
+    },
 }
 
 
 # --------------------------------------------------------------------------
-# Result formatting
+# Selected-result card and handoff
 # --------------------------------------------------------------------------
-def _safe_text(value, fallback="—"):
-    text = str(value or "").strip()
-    return text if text else fallback
-
-
-def _area_name(entity):
-    if not isinstance(entity, dict):
-        return "—"
-
-    area = entity.get("area") or {}
-    if isinstance(area, dict) and area.get("name"):
-        return str(area["name"])
-
-    begin_area = entity.get("begin-area") or {}
-    if isinstance(begin_area, dict) and begin_area.get("name"):
-        return str(begin_area["name"])
-
-    return _safe_text(entity.get("country"))
-
-
-def _life_span(entity):
-    life_span = entity.get("life-span") or {}
-    if not isinstance(life_span, dict):
-        return "—"
-
-    begin = str(life_span.get("begin") or "").strip()
-    end = str(life_span.get("end") or "").strip()
-
-    if begin and end:
-        return f"{begin} → {end}"
-    if begin:
-        return f"{begin} →"
-    if end:
-        return f"→ {end}"
-    return "—"
-
-
-def _secondary_types(entity):
-    values = entity.get("secondary-type-list") or []
-    if not isinstance(values, list):
-        return ""
-    return ", ".join(str(value) for value in values if str(value).strip())
-
-
-def _recording_isrcs(entity):
-    values = entity.get("isrc-list") or []
-    if not isinstance(values, list):
-        return ""
-    return ", ".join(str(value) for value in values if str(value).strip())
-
-
-def _result_title(entity_type, entity):
-    if entity_type in {"artist", "label"}:
-        return _safe_text(entity.get("name"))
-    return _safe_text(entity.get("title"))
-
-
-def _result_type(entity_type, entity):
-    if entity_type == "release":
-        release_group = entity.get("release-group") or {}
-        if isinstance(release_group, dict):
-            primary_type = release_group.get("primary-type") or release_group.get("type")
-            if primary_type:
-                return str(primary_type)
-        return _safe_text(entity.get("status"))
-
-    if entity_type == "release-group":
-        primary = entity.get("primary-type") or entity.get("type") or ""
-        secondary = _secondary_types(entity)
-        if primary and secondary:
-            return f"{primary} · {secondary}"
-        return _safe_text(primary or secondary)
-
-    if entity_type == "recording":
-        return "Video" if str(entity.get("video") or "").lower() == "true" else "Audio"
-
-    return _safe_text(entity.get("type"))
-
-
-def _result_date(entity_type, entity):
-    if entity_type in {"artist", "label"}:
-        return _life_span(entity)
-    if entity_type == "release-group":
-        return _safe_text(entity.get("first-release-date"))
-    if entity_type == "recording":
-        return _safe_text(entity.get("first-release-date"))
-    if entity_type == "release":
-        return _safe_text(entity.get("date"))
-    return "—"
-
-
-def _result_identifier(entity_type, entity):
-    if entity_type == "release":
-        return _safe_text(entity.get("barcode"))
-    if entity_type == "recording":
-        return _recording_isrcs(entity) or "—"
-    if entity_type == "label":
-        return _safe_text(entity.get("label-code"))
-    if entity_type == "work":
-        return mb_iswc(entity) or "—"
-    return "—"
-
-
-def _result_row(entity_type, entity, position):
-    mbid = str(entity.get("id") or "").strip()
-    artist_credit = mb_artist_credit_phrase(entity)
-
-    return {
-        "#": position,
-        "Score": int(entity.get("score") or 0),
-        "Όνομα / Τίτλος": _result_title(entity_type, entity),
-        "Artist Credit": artist_credit or "—",
-        "Τύπος": _result_type(entity_type, entity),
-        "Χώρα / Περιοχή": _area_name(entity),
-        "Ημερομηνία / Περίοδος": _result_date(entity_type, entity),
-        "Disambiguation": _safe_text(entity.get("disambiguation")),
-        "ISRC / ISWC / Barcode / Label Code": _result_identifier(entity_type, entity),
-        "MBID": mbid or "—",
-        "MusicBrainz": mb_entity_url(entity_type, mbid),
-    }
-
-
-def _selection_label(entity_type, entity, position):
-    title = _result_title(entity_type, entity)
-    artist = mb_artist_credit_phrase(entity)
-    date_value = _result_date(entity_type, entity)
-    country = _area_name(entity)
-    disambiguation = str(entity.get("disambiguation") or "").strip()
-    score = str(entity.get("score") or "0")
-
-    parts = [f"{position}. [{score}] {title}"]
-    if artist:
-        parts.append(artist)
-    if date_value != "—":
-        parts.append(date_value)
-    if country != "—":
-        parts.append(country)
-    if disambiguation:
-        parts.append(disambiguation)
-
-    label = " — ".join(parts)
-    return label if len(label) <= 220 else f"{label[:217]}..."
-
-
-def _search_fingerprint(state):
-    raw = "|".join(
-        [
-            str(state.get("entity_type") or ""),
-            str(state.get("query") or ""),
-            str(state.get("strict") or False),
-            str(state.get("lucene_query") or False),
-            str(len(state.get("results") or [])),
-        ]
-    )
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
-
-
 def _render_selected_result(entity_type, selected):
-    title = _result_title(entity_type, selected)
-    artist = mb_artist_credit_phrase(selected)
+    title = result_title(entity_type, selected)
+    artist = result_artist(entity_type, selected)
     mbid = str(selected.get("id") or "").strip()
+    target = HANDOFF_TARGETS.get(entity_type)
 
     with st.container(border=True):
         st.markdown(f"### ✅ {title}")
         if artist:
             st.caption(artist)
 
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Τύπος", _result_type(entity_type, selected))
-        d2.metric("Χώρα / Περιοχή", _area_name(selected))
-        d3.metric("Ημερομηνία", _result_date(entity_type, selected))
-        d4.metric("Score", str(selected.get("score") or "0"))
+        detail_columns = st.columns(4)
+        detail_columns[0].metric("Τύπος", result_type(entity_type, selected))
+        detail_columns[1].metric("Χώρα / Περιοχή", area_name(selected))
+        detail_columns[2].metric("Ημερομηνία", result_date(entity_type, selected))
+        detail_columns[3].metric("Score", str(selected.get("score") or "0"))
 
         disambiguation = str(selected.get("disambiguation") or "").strip()
         if disambiguation:
             st.info(f"ℹ️ {disambiguation}")
 
-        identifier = _result_identifier(entity_type, selected)
+        identifier = result_identifier(entity_type, selected)
         if identifier != "—":
             st.markdown("**Σχετικός κωδικός**")
             st.code(identifier, language=None)
@@ -247,36 +126,31 @@ def _render_selected_result(entity_type, selected):
             )
 
         with button_columns[1]:
-            target = EXPLORER_HANDOFF_TARGETS.get(entity_type)
-            if target and mbid:
-                if st.button(
-                    f"➡️ Χρήση στο {target}",
-                    type="primary",
-                    width="stretch",
-                    key=f"mb_universal_handoff_{entity_type}_{mbid}",
-                ):
-                    st.session_state["mb_explorer_handoff"] = {
-                        "entity_type": entity_type,
-                        "mbid": mbid,
-                        "result": selected,
-                        "source_query": st.session_state.get(
-                            "mb_universal_search_state", {}
-                        ).get("query", ""),
-                    }
-                    st.session_state.current_page = "MusicBrainz Explorer"
-                    st.rerun()
-            else:
-                st.button(
-                    "Δεν υπάρχει ακόμη αντίστοιχο Auditor",
-                    width="stretch",
-                    disabled=True,
-                    key=f"mb_universal_no_handoff_{entity_type}_{mbid}",
-                )
+            handoff_clicked = st.button(
+                f"➡️ Χρήση στο {target['label'] if target else 'dedicated view'}",
+                type="primary",
+                width="stretch",
+                disabled=not bool(target and mbid),
+                key=f"mb_universal_handoff_{entity_type}_{mbid or 'missing'}",
+            )
 
-        if entity_type not in EXPLORER_HANDOFF_TARGETS:
+        if handoff_clicked and target and mbid:
+            payload = {
+                "entity_type": entity_type,
+                "mbid": mbid,
+                "result": selected,
+                "source_query": st.session_state.get(
+                    "mb_universal_search_state", {}
+                ).get("query", ""),
+            }
+            st.session_state[target["session_key"]] = payload
+            st.session_state.current_page = target["page"]
+            st.rerun()
+
+        if target:
             st.caption(
-                "Η Phase 1 ολοκληρώνει την αναζήτηση, την αποσαφήνιση και το MBID. "
-                "Η αναλυτική in-app προβολή αυτού του entity δεν προστίθεται ακόμη."
+                f"Το αποτέλεσμα θα μεταφερθεί στο **{target['label']}** με το "
+                "MBID και το επιλεγμένο search stub, χωρίς νέα search call."
             )
 
 
@@ -293,7 +167,8 @@ def page_musicbrainz_search():
 
     st.info(
         "Κάθε αναζήτηση είναι ξεχωριστή κλήση προς το MusicBrainz. "
-        "Τα αποτελέσματα αποθηκεύονται προσωρινά για 1 ώρα."
+        "Τα αποτελέσματα αποθηκεύονται προσωρινά για 1 ώρα και όλα τα core "
+        "entities διαθέτουν πλέον ενεργό in-app handoff."
     )
 
     with st.form("mb_universal_search_form", clear_on_submit=False):
@@ -366,8 +241,8 @@ def page_musicbrainz_search():
                     "entity_type": entity_type,
                     "entity_name": ENTITY_NAMES[entity_type],
                     "query": clean_query,
-                    "strict": strict,
-                    "lucene_query": lucene_query,
+                    "strict": bool(strict),
+                    "lucene_query": bool(lucene_query),
                     "results": results,
                 }
             except musicbrainzngs.MusicBrainzError as exc:
@@ -378,7 +253,7 @@ def page_musicbrainz_search():
                 st.error(f"Μη αναμενόμενο σφάλμα: {exc}")
 
     state = st.session_state.get("mb_universal_search_state")
-    if not state:
+    if not isinstance(state, dict):
         return
 
     entity_type = state.get("entity_type")
@@ -398,10 +273,14 @@ def page_musicbrainz_search():
         )
         return
 
+    valid_results = [result for result in results if isinstance(result, dict)]
+    if not valid_results:
+        st.warning("Τα αποτελέσματα δεν είχαν αναγνωρίσιμη δομή.")
+        return
+
     rows = [
-        _result_row(entity_type, result, position)
-        for position, result in enumerate(results, start=1)
-        if isinstance(result, dict)
+        search_result_row(entity_type, result, position)
+        for position, result in enumerate(valid_results, start=1)
     ]
 
     st.dataframe(
@@ -416,16 +295,17 @@ def page_musicbrainz_search():
         },
     )
 
-    valid_results = [result for result in results if isinstance(result, dict)]
-    if not valid_results:
-        st.warning("Τα αποτελέσματα δεν είχαν αναγνωρίσιμη δομή.")
-        return
-
-    fingerprint = _search_fingerprint(state)
+    fingerprint = search_fingerprint(
+        entity_type,
+        state.get("query"),
+        state.get("strict"),
+        state.get("lucene_query"),
+        valid_results,
+    )
     selected_index = st.selectbox(
         "Επιλέξτε το σωστό αποτέλεσμα",
         options=list(range(len(valid_results))),
-        format_func=lambda index: _selection_label(
+        format_func=lambda index: search_selection_label(
             entity_type,
             valid_results[index],
             index + 1,
@@ -433,5 +313,4 @@ def page_musicbrainz_search():
         key=f"mb_universal_selected_{fingerprint}",
     )
 
-    selected = valid_results[selected_index]
-    _render_selected_result(entity_type, selected)
+    _render_selected_result(entity_type, valid_results[selected_index])
