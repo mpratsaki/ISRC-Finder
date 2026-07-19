@@ -90,7 +90,7 @@ def page_catalog_generator(token, spotify_user):
 
             live_status.empty()
             progress_bar.empty()
-            st.toast("Η δημιουργία του Excel ολοκληρώθηκε!", icon="🎉")
+            st.toast("Η δημιουργία του Excel ολοκληρώθηκε!")
 
             output_filename = make_catalog_filename(selected_playlist["name"])
 
@@ -125,7 +125,7 @@ def page_catalog_generator(token, spotify_user):
                     }).execute()
 
                 except Exception as e:
-                    st.error(f"🚨 Σφάλμα επικοινωνίας με το Supabase: {e}")
+                    st.error(f"Σφάλμα επικοινωνίας με το Supabase: {e}")
                     st.toast("Δεν ενημερώθηκε το ιστορικό.", icon="⚠️")
 
             # Εμφάνιση Αποτελεσμάτων
@@ -143,7 +143,7 @@ def page_catalog_generator(token, spotify_user):
                 _, col_down, _ = st.columns([1, 2, 1])
                 with col_down:
                     st.download_button(
-                        label="⬇️ Λήψη Ολοκληρωμένου Excel",
+                        label="⬇️ Λήψη Excel",
                         data=buffer.getvalue(),
                         file_name=output_filename,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
