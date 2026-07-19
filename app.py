@@ -39,7 +39,10 @@ from tools.page_history import page_history
 from tools.page_isrc_finder import page_isrc_finder
 from tools.page_metadata import page_metadata_health
 from tools.page_musicbrainz import page_musicbrainz
+from tools.page_musicbrainz_label import page_musicbrainz_label
+from tools.page_musicbrainz_release_group import page_musicbrainz_release_group
 from tools.page_musicbrainz_search import page_musicbrainz_search
+from tools.page_musicbrainz_work import page_musicbrainz_work
 from tools.page_settings import page_settings
 
 st.set_page_config(
@@ -153,12 +156,15 @@ def render_sidebar(spotify_user):
         st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**")
         st.divider()
 
-    # --- Top section: Εργαλεία ---
+# --- Top section: Εργαλεία ---
     st.sidebar.markdown("### 🛠️ Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
     _nav_button("MusicBrainz Universal Search", "MusicBrainz Search")
+    _nav_button("MusicBrainz Label Auditor", "MusicBrainz Label Auditor")
+    _nav_button("MusicBrainz Album Editions", "MusicBrainz Release Group")
+    _nav_button("MusicBrainz Work Explorer", "MusicBrainz Work Explorer")
     _nav_button("MusicBrainz Explorer (Beta)", "MusicBrainz Explorer")
 
     # --- Spacer to push the System block lower ---
@@ -228,6 +234,12 @@ elif current_page == "Metadata Health":
     page_metadata_health()
 elif current_page == "MusicBrainz Search":
     page_musicbrainz_search()
+elif current_page == "MusicBrainz Label Auditor":
+    page_musicbrainz_label()
+elif current_page == "MusicBrainz Release Group":
+    page_musicbrainz_release_group()
+elif current_page == "MusicBrainz Work Explorer":
+    page_musicbrainz_work()
 elif current_page == "MusicBrainz Explorer":
     page_musicbrainz()
 elif current_page == "Ιστορικό & Αρχεία":
