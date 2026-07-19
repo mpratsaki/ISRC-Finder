@@ -157,7 +157,7 @@ def render_sidebar(spotify_user):
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
-    _nav_button("MusicBrainz Explorer", "MusicBrainz Explorer")
+    _nav_button("MusicBrainz Explorer (Beta)", "MusicBrainz Explorer")
 
     # --- Spacer to push the System block lower ---
     st.sidebar.divider()
