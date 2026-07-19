@@ -160,7 +160,7 @@ def render_sidebar(spotify_user):
     _nav_button("MusicBrainz Explorer", "MusicBrainz Explorer")
 
     # --- Spacer to push the System block lower ---
-    st.sidebar.markdown("<div style='height: 1.5rem'></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
     st.sidebar.divider()
 
     # --- Bottom section: Σύστημα ---
