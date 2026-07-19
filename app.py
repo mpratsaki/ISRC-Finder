@@ -167,7 +167,7 @@ def render_sidebar(spotify_user):
     _nav_button("Ιστορικό & Αρχεία", "Ιστορικό & Αρχεία")
     _nav_button("Ρυθμίσεις", "Ρυθμίσεις")
 
-    if st.sidebar.button("🚪 Αποσύνδεση", width="stretch", key="nav_logout"):
+    if st.sidebar.button("Αποσύνδεση", width="stretch", key="nav_logout"):
         st.session_state.pop("token_data", None)
         st.session_state.pop("current_page", None)
         st.rerun()
