@@ -18,7 +18,7 @@ from utils.github_fetcher import (
 
 
 def page_metadata_health():
-    st.title("🩺 Metadata Health Dashboard")
+    st.title("Metadata Health Dashboard")
     st.caption("Επισκόπηση της ποιότητας του IPI LIST — εντοπίστε writers χωρίς IPI ή PRO.")
 
     total = None
