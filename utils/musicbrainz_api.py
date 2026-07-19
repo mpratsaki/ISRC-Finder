@@ -7,6 +7,9 @@ Tool.
 All MusicBrainz network calls live in this module. Streamlit pages should only
 handle UI and orchestration. The musicbrainzngs client keeps requests
 sequential and enforces its built-in one-request-per-second rate limiter.
+
+Phase 2 adds full lookup/browse support for Labels, Release Groups and Works
+without changing the established Artist, Recording and Release pipelines.
 """
 
 import re
@@ -27,11 +30,30 @@ MB_CONTACT = "johnnakas03@gmail.com"  # Replace only if the project contact chan
 MB_CACHE_TTL_SECONDS = 3600
 MB_SEARCH_DEFAULT_LIMIT = 10
 MB_SEARCH_MAX_LIMIT = 100
+MB_BROWSE_DEFAULT_LIMIT = 50
+MB_BROWSE_MAX_LIMIT = 100
 MB_UUID_PATTERN = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
 
+# Entity types supported by the canonical MusicBrainz website URL helper.
+MB_ENTITY_TYPES = (
+    "area",
+    "artist",
+    "event",
+    "instrument",
+    "label",
+    "place",
+    "recording",
+    "release",
+    "release-group",
+    "series",
+    "url",
+    "work",
+)
+
+# Entity types exposed by the app's Universal Search selector.
 MB_SEARCH_ENTITY_TYPES = (
     "artist",
     "release",
@@ -39,6 +61,24 @@ MB_SEARCH_ENTITY_TYPES = (
     "recording",
     "label",
     "work",
+)
+
+# Relationship includes supported by the installed musicbrainzngs client for
+# Label, Release Group and Work lookups. Keeping them in one tuple prevents the
+# three dedicated views from drifting into different relationship coverage.
+MB_RELATION_INCLUDES = (
+    "area-rels",
+    "artist-rels",
+    "label-rels",
+    "place-rels",
+    "event-rels",
+    "recording-rels",
+    "release-rels",
+    "release-group-rels",
+    "series-rels",
+    "url-rels",
+    "work-rels",
+    "instrument-rels",
 )
 
 musicbrainzngs.set_useragent(MB_APP_NAME, MB_APP_VERSION, MB_CONTACT)
@@ -69,7 +109,7 @@ def mb_entity_url(entity_type, mbid):
     clean_entity = str(entity_type or "").strip().lower()
     clean_mbid = extract_mbid(mbid)
 
-    if clean_entity not in MB_SEARCH_ENTITY_TYPES or not clean_mbid:
+    if clean_entity not in MB_ENTITY_TYPES or not clean_mbid:
         return "https://musicbrainz.org"
 
     return f"https://musicbrainz.org/{clean_entity}/{clean_mbid}"
@@ -152,6 +192,31 @@ def _normalise_limit(limit):
     return max(1, min(parsed, MB_SEARCH_MAX_LIMIT))
 
 
+def _normalise_browse_limit(limit):
+    try:
+        parsed = int(limit)
+    except (TypeError, ValueError):
+        parsed = MB_BROWSE_DEFAULT_LIMIT
+
+    return max(1, min(parsed, MB_BROWSE_MAX_LIMIT))
+
+
+def _normalise_offset(offset):
+    try:
+        parsed = int(offset)
+    except (TypeError, ValueError):
+        parsed = 0
+
+    return max(0, parsed)
+
+
+def _safe_int(value, fallback=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _run_entity_search(
     search_function: Callable,
     result_key: str,
@@ -180,6 +245,21 @@ def _run_entity_search(
 
     data = search_function(**request_kwargs)
     return data.get(result_key) or []
+
+
+def _release_browse_payload(data, offset, limit):
+    """Normalise a musicbrainzngs release browse response."""
+    releases = data.get("release-list") or []
+    if not isinstance(releases, list):
+        releases = []
+
+    total_count = _safe_int(data.get("release-count"), len(releases))
+    return {
+        "release-list": releases,
+        "release-count": max(total_count, len(releases)),
+        "release-offset": _normalise_offset(offset),
+        "release-limit": _normalise_browse_limit(limit),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -226,7 +306,7 @@ def mb_get_recordings_by_isrc(isrc):
     # Without this, an empty work-relation-list (the common, legitimate
     # case for a recording with no linked Work) is indistinguishable from
     # a dropped include, and every such recording silently costs a second
-    # MusicBrainz API call to "confirm" what was already known.
+    # MusicBrainz API call to confirm what was already known.
     if not work_rels_requested:
         for recording in result.get("recording-list") or []:
             if isinstance(recording, dict):
@@ -278,7 +358,94 @@ def mb_get_release(release_mbid):
 
 
 # --------------------------------------------------------------------------
-# Cached Phase 1 search-first calls
+# Cached Phase 2 core-entity lookups and browse calls
+# --------------------------------------------------------------------------
+@st.cache_data(ttl=MB_CACHE_TTL_SECONDS, show_spinner=False)
+def mb_get_label(label_mbid):
+    """
+    Full Label lookup including aliases, annotation and all supported
+    relationship target types.
+
+    Releases are intentionally loaded through ``mb_browse_label_releases`` so
+    the UI can page beyond the 25 linked entities available in a lookup.
+    """
+    includes = ["aliases", "annotation", *MB_RELATION_INCLUDES]
+    data = musicbrainzngs.get_label_by_id(label_mbid, includes=includes)
+    return data.get("label") or {}
+
+
+@st.cache_data(ttl=MB_CACHE_TTL_SECONDS, show_spinner=False)
+def mb_browse_label_releases(
+    label_mbid,
+    limit=MB_BROWSE_DEFAULT_LIMIT,
+    offset=0,
+):
+    """Return one cached, paginated page of releases linked to a Label."""
+    clean_limit = _normalise_browse_limit(limit)
+    clean_offset = _normalise_offset(offset)
+    data = musicbrainzngs.browse_releases(
+        label=label_mbid,
+        includes=["artist-credits", "labels", "release-groups", "media"],
+        limit=clean_limit,
+        offset=clean_offset,
+    )
+    return _release_browse_payload(data, clean_offset, clean_limit)
+
+
+@st.cache_data(ttl=MB_CACHE_TTL_SECONDS, show_spinner=False)
+def mb_get_release_group(release_group_mbid):
+    """
+    Full Release Group lookup with artist credit, aliases, annotation and
+    relationships. Editions are loaded separately through a browse request.
+    """
+    includes = [
+        "artists",
+        "artist-credits",
+        "aliases",
+        "annotation",
+        *MB_RELATION_INCLUDES,
+    ]
+    data = musicbrainzngs.get_release_group_by_id(
+        release_group_mbid,
+        includes=includes,
+    )
+    return data.get("release-group") or {}
+
+
+@st.cache_data(ttl=MB_CACHE_TTL_SECONDS, show_spinner=False)
+def mb_browse_release_group_releases(
+    release_group_mbid,
+    limit=MB_BROWSE_DEFAULT_LIMIT,
+    offset=0,
+):
+    """Return one cached page of editions belonging to a Release Group."""
+    clean_limit = _normalise_browse_limit(limit)
+    clean_offset = _normalise_offset(offset)
+    data = musicbrainzngs.browse_releases(
+        release_group=release_group_mbid,
+        includes=["artist-credits", "labels", "release-groups", "media"],
+        limit=clean_limit,
+        offset=clean_offset,
+    )
+    return _release_browse_payload(data, clean_offset, clean_limit)
+
+
+@st.cache_data(ttl=MB_CACHE_TTL_SECONDS, show_spinner=False)
+def mb_get_work_full(work_mbid):
+    """
+    Standalone Work lookup with aliases, annotation, Work attributes and all
+    supported relationships, including creators and linked recordings.
+
+    ``mb_get_work`` remains intentionally lightweight for the established
+    Recording → Work resolver; this full helper is used only by Phase 2.
+    """
+    includes = ["aliases", "annotation", *MB_RELATION_INCLUDES]
+    data = musicbrainzngs.get_work_by_id(work_mbid, includes=includes)
+    return data.get("work") or {}
+
+
+# --------------------------------------------------------------------------
+# Cached search-first calls
 # --------------------------------------------------------------------------
 @st.cache_data(ttl=MB_CACHE_TTL_SECONDS, show_spinner=False)
 def mb_search_artists(
@@ -411,7 +578,7 @@ def mb_search_entities(
     strict=False,
     lucene_query=False,
 ):
-    """Dispatch a Phase 1 Universal Search to the correct cached helper."""
+    """Dispatch a Universal Search to the correct cached helper."""
     clean_entity = str(entity_type or "").strip().lower()
     search_function = _SEARCH_DISPATCH.get(clean_entity)
 
@@ -474,7 +641,7 @@ def mb_error_message(exc):
     return f"Σφάλμα MusicBrainz: {exc}"
 
 
-# Backwards-friendly alias for any code that imports the old private helper.
+# Backwards-friendly aliases for code that imports the old private helpers.
 _mb_error_message = mb_error_message
 _mb_artist_credit_phrase = mb_artist_credit_phrase
 _mb_iswc = mb_iswc
