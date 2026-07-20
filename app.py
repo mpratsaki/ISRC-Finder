@@ -147,7 +147,7 @@ def _nav_button(label, page_key):
 
 
 def render_sidebar(spotify_user):
-with st.sidebar:
+    with st.sidebar:
         if os.path.exists("StayLogo2.jpg"):
             st.image("StayLogo2.jpg", width="stretch")
         else:
@@ -170,7 +170,7 @@ with st.sidebar:
         
         st.divider()
 
-# --- Top section: Εργαλεία ---
+    # --- Top section: Εργαλεία ---
     st.sidebar.markdown("### 🛠️ Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("ISRC Finder", "ISRC Finder")
@@ -197,7 +197,6 @@ with st.sidebar:
 
     st.sidebar.divider()
     st.sidebar.caption("Stay Independent Tool © 2026")
-
 
 # ==========================================================================
 # MAIN APPLICATION FLOW
