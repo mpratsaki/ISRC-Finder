@@ -9,6 +9,7 @@ Label Auditor, Release Group / Album View and the standalone Work Explorer.
 """
 
 import hashlib
+import requests
 from typing import Iterable, Optional
 
 import musicbrainzngs
@@ -22,6 +23,7 @@ from utils.musicbrainz_api import (
     mb_iswc,
     mb_search_entities,
 )
+from utils.coverart_api import fetch_cover_art_url
 
 RELATION_TARGET_SPECS = (
     ("area", "Περιοχή", "name"),
@@ -255,9 +257,7 @@ def render_entity_search_panel(
 ):
     """
     Render a complete cached MusicBrainz search/disambiguation flow.
-
     Returns the selected raw result only when the user presses ``action_label``.
-    The caller decides whether to lookup it locally or route it elsewhere.
     """
     with st.form(f"{key_prefix}_form", clear_on_submit=False):
         query = st.text_input(
@@ -579,3 +579,72 @@ def render_relationship_table(rows, empty_message):
     else:
         st.warning(empty_message)
 
+# --------------------------------------------------------------------------
+# Phase 4: Cover Art & Wikidata UI Integrations
+# --------------------------------------------------------------------------
+def render_cover_art(mbid, entity_type="release"):
+    """Εμφανίζει το Cover Art εφόσον υπάρχει στο αρχείο."""
+    with st.spinner("Έλεγχος Cover Art Archive..."):
+        img_url = fetch_cover_art_url(mbid, entity_type)
+    
+    if img_url:
+        st.image(img_url, caption="Εξώφυλλο (Cover Art Archive)", width=250)
+    else:
+        st.info("Δεν βρέθηκε εξώφυλλο στο Cover Art Archive.")
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fetch_wikidata_bio(wikidata_url):
+    """Ανάκτηση βιογραφικού και εικόνας από το API του Wikidata / MediaWiki."""
+    q_id = wikidata_url.split("/")[-1]
+    url = f"https://www.wikidata.org/w/api.php?action=wbgetentities&ids={q_id}&format=json&props=descriptions|claims"
+    try:
+        resp = requests.get(url, timeout=5).json()
+        entity = resp.get("entities", {}).get(q_id, {})
+        
+        # Λήψη Περιγραφής (Αναζήτηση σε Ελληνικά, αλλιώς Αγγλικά)
+        descriptions = entity.get("descriptions", {})
+        desc = descriptions.get("el", {}).get("value") or descriptions.get("en", {}).get("value")
+        
+        # Λήψη Εικόνας (Ιδιότητα P18)
+        claims = entity.get("claims", {})
+        image_claim = claims.get("P18", [])
+        image_url = None
+        if image_claim:
+            file_name = image_claim[0]["mainsnak"]["datavalue"]["value"]
+            # Μετατροπή ονόματος σε direct Wikimedia URL
+            wiki_api = f"https://en.wikipedia.org/w/api.php?action=query&titles=Image:{file_name}&prop=imageinfo&iiprop=url&format=json"
+            wiki_resp = requests.get(wiki_api, timeout=5).json()
+            pages = wiki_resp.get("query", {}).get("pages", {})
+            for page_id, page_info in pages.items():
+                imageinfo = page_info.get("imageinfo", [])
+                if imageinfo:
+                    image_url = imageinfo[0].get("url")
+                    break
+                    
+        return desc, image_url
+    except Exception:
+        return None, None
+
+def render_wikidata_bio(entity):
+    """Αναζητά το URL της Wikidata στις σχέσεις του καλλιτέχνη και προβάλει βιογραφικό."""
+    wikidata_url = None
+    for rel in entity.get("url-relation-list") or []:
+        if rel.get("type") == "wikidata":
+            target = rel.get("target")
+            wikidata_url = target.get("resource") if isinstance(target, dict) else target
+            break
+            
+    if not wikidata_url:
+        return
+        
+    desc, img_url = _fetch_wikidata_bio(wikidata_url)
+    if desc or img_url:
+        st.markdown("### Βιογραφικό (Wikidata)")
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            if img_url:
+                st.image(img_url, use_container_width=True)
+        with col2:
+            if desc:
+                st.write(desc.capitalize())
+            st.caption(f"Πηγή: {wikidata_url}")
