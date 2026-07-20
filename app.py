@@ -171,7 +171,8 @@ def render_sidebar(spotify_user):
         
         st.divider()
 
-st.sidebar.markdown("### 🛠️ Εργαλεία")
+# --- Top section: Εργαλεία ---
+    st.sidebar.markdown("### 🛠️ Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
@@ -198,7 +199,6 @@ st.sidebar.markdown("### 🛠️ Εργαλεία")
 
     st.sidebar.divider()
     st.sidebar.caption("Stay Independent Tool © 2026")
-
 # ==========================================================================
 # MAIN APPLICATION FLOW
 # ==========================================================================
