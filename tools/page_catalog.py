@@ -4,6 +4,8 @@ tools/page_catalog.py
 "Γεννήτρια Catalog" page: lets the logged-in user pick one of their own
 Spotify playlists, generates the enriched Stay Independent Catalog Excel
 file, uploads it to Supabase Storage, and logs it to export_history.
+
+Includes Phase 3 Collection integration.
 """
 
 import time
@@ -14,13 +16,14 @@ import streamlit as st
 
 from core.auth_spotify import fetch_user_playlists, fetch_playlist_tracks
 from core.database import init_supabase
+from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
 from utils.github_fetcher import (
     get_private_ipi_config,
     fetch_private_ipi_list_bytes,
     build_ipi_lookup_from_bytes,
 )
 from utils.excel_engine import generate_new_catalog, make_catalog_filename
-
+from utils.musicbrainz_api import mb_add_to_collection
 
 def page_catalog_generator(token, spotify_user):
     st.title("Γεννήτρια Catalog")
@@ -36,7 +39,6 @@ def page_catalog_generator(token, spotify_user):
         st.caption(f"Λεπτομέρεια συστήματος: {e}")
         st.stop()
 
-    # Ανάκτηση Playlists
     try:
         playlists = fetch_user_playlists(token)
     except requests.HTTPError as e:
@@ -94,41 +96,33 @@ def page_catalog_generator(token, spotify_user):
 
             output_filename = make_catalog_filename(selected_playlist["name"])
 
-            # ΠΡΟΣΘΗΚΗ 2: Αποθήκευση στο Supabase Storage
             supabase = init_supabase()
             file_public_url = None
 
             if supabase and spotify_user:
                 try:
-                    # Μετατροπή του BytesIO σε raw bytes
                     file_bytes = buffer.getvalue()
-
-                    # Δημιουργία μοναδικού ονόματος για το αρχείο στο bucket
                     timestamp = int(time.time())
                     storage_path = f"{spotify_user}/{timestamp}_{output_filename}"
 
-                    # Upload στο bucket με όνομα "catalogs" (πρέπει να το φτιάξεις στο Supabase!)
                     supabase.storage.from_("catalogs").upload(
                         file=file_bytes,
                         path=storage_path,
                         file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
                     )
-                    # Ανάκτηση του Public URL
                     file_public_url = supabase.storage.from_("catalogs").get_public_url(storage_path)
 
-                    # Εγγραφή ιστορικού στη Βάση Δεδομένων με το URL
                     supabase.table("export_history").insert({
                         "spotify_user": spotify_user,
                         "playlist_name": selected_playlist["name"],
                         "track_count": len(tracks),
-                        "file_url": file_public_url  # Η νέα στήλη
+                        "file_url": file_public_url
                     }).execute()
 
                 except Exception as e:
                     st.error(f"Σφάλμα επικοινωνίας με το Supabase: {e}")
                     st.toast("Δεν ενημερώθηκε το ιστορικό.", icon="⚠️")
 
-            # Εμφάνιση Αποτελεσμάτων
             st.markdown("### 📊 Αποτελέσματα & Εξαγωγή")
             tab_summary, tab_preview, tab_logs = st.tabs(["Σύνοψη", "Προεπισκόπηση", "Σφάλματα & Logs"])
 
@@ -139,7 +133,6 @@ def page_catalog_generator(token, spotify_user):
                 m3.metric("Προειδοποιήσεις", len(report['health_warnings']) + len(report['tidal_fallbacks']))
 
                 st.markdown("<br>", unsafe_allow_html=True)
-
                 _, col_down, _ = st.columns([1, 2, 1])
                 with col_down:
                     st.download_button(
@@ -151,38 +144,53 @@ def page_catalog_generator(token, spotify_user):
                         type="primary"
                     )
 
+                # --- Phase 3: Add to MusicBrainz Collection ---
+                st.divider()
+                st.markdown("#### 🎵 Διαχείριση MusicBrainz Collection")
+                if not is_mb_authenticated():
+                    init_mb_auth()
+                
+                if not is_mb_authenticated():
+                    st.warning("Δεν είστε συνδεδεμένοι στο MusicBrainz. Ρυθμίστε τα credentials για να χρησιμοποιήσετε αυτή τη λειτουργία.")
+                else:
+                    st.caption("Προσθέστε τα Release MBIDs του catalog σας κατευθείαν στην επίσημη συλλογή σας.")
+                    with st.expander("Προσθήκη Releases στην Συλλογή MusicBrainz"):
+                        col_id_input = st.text_input("Collection MBID (ή URL)", placeholder="π.χ. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", key=f"col_mbid_{selected_playlist['id']}")
+                        rel_ids_input = st.text_area("Release MBIDs (χωρισμένα με κόμμα)", placeholder="MBID 1, MBID 2...", key=f"rel_mbids_{selected_playlist['id']}")
+                        if st.button("📤 Προσθήκη στην Συλλογή", key=f"btn_col_{selected_playlist['id']}"):
+                            col_mbids_list = [m.strip() for m in rel_ids_input.split(",") if m.strip()]
+                            if not col_id_input or not col_mbids_list:
+                                st.error("Συμπληρώστε το Collection ID και τουλάχιστον ένα Release ID.")
+                            else:
+                                try:
+                                    with st.spinner("Προσθήκη Releases..."):
+                                        mb_add_to_collection(col_id_input, col_mbids_list)
+                                    st.success("Tα Releases προστέθηκαν επιτυχώς στην συλλογή!")
+                                except Exception as e:
+                                    st.error(f"Σφάλμα κατά την προσθήκη: {e}")
+
             with tab_preview:
                 if report["filled"]:
                     df_preview = pd.DataFrame(report["filled"])
                     df_preview["contributors"] = df_preview["contributors"].apply(lambda x: ", ".join(x))
                     st.dataframe(
-                        df_preview,
-                        width="stretch",
-                        hide_index=True,
+                        df_preview, width="stretch", hide_index=True,
                         column_config={
-                            "title": "Τίτλος",
-                            "contributors": "Δημιουργοί",
-                            "isrc": "ISRC",
-                            "source": "Πηγή Credits",
-                            "notes": "Σημειώσεις"
+                            "title": "Τίτλος", "contributors": "Δημιουργοί",
+                            "isrc": "ISRC", "source": "Πηγή Credits", "notes": "Σημειώσεις"
                         }
                     )
 
             with tab_logs:
                 if report["health_warnings"]:
                     st.error(f"Βρέθηκαν {len(report['health_warnings'])} προβληματικά ISRC")
-                    for title, isrc in report["health_warnings"]:
-                        st.write(f"• **{title}** | ISRC: `{isrc}`")
-                else:
-                    st.success("Κανένα πρόβλημα με τα ISRC!")
-
+                    for title, isrc in report["health_warnings"]: st.write(f"• **{title}** | ISRC: `{isrc}`")
+                else: st.success("Κανένα πρόβλημα με τα ISRC!")
                 st.divider()
-
                 if report["tidal_fallbacks"]:
                     st.warning(f"Βρέθηκαν {len(report['tidal_fallbacks'])} τραγούδια χωρίς Tidal Credits")
                     with st.expander("Προβολή λίστας", expanded=False):
-                        for title in report["tidal_fallbacks"]:
-                            st.write(f"• **{title}**")
+                        for title in report["tidal_fallbacks"]: st.write(f"• **{title}**")
 
         except Exception as e:
             st.error(f"Μη αναμενόμενο σφάλμα κατά τη δημιουργία: {e}")
