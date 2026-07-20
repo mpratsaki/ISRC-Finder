@@ -172,7 +172,7 @@ def render_sidebar(spotify_user):
         st.divider()
 
 # --- Top section: Εργαλεία ---
-    st.sidebar.markdown("###Εργαλεία")
+    st.sidebar.markdown("### Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
@@ -188,7 +188,7 @@ def render_sidebar(spotify_user):
     st.sidebar.divider()
 
     # --- Bottom section: Σύστημα ---
-    st.sidebar.markdown("###Σύστημα")
+    st.sidebar.markdown("### Σύστημα")
     _nav_button("Ιστορικό & Αρχεία", "Ιστορικό & Αρχεία")
     _nav_button("Ρυθμίσεις", "Ρυθμίσεις")
 
