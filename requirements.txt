@@ -3,4 +3,4 @@ requests
 openpyxl
 supabase
 musicbrainzngs
-libchromaprint-tools
+pandas
