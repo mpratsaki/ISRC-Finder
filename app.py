@@ -44,6 +44,7 @@ from tools.page_musicbrainz_release_group import page_musicbrainz_release_group
 from tools.page_musicbrainz_search import page_musicbrainz_search
 from tools.page_musicbrainz_work import page_musicbrainz_work
 from tools.page_settings import page_settings
+from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
 
 st.set_page_config(
     page_title="Stay Independent Tool",
@@ -146,7 +147,7 @@ def _nav_button(label, page_key):
 
 
 def render_sidebar(spotify_user):
-    with st.sidebar:
+with st.sidebar:
         if os.path.exists("StayLogo2.jpg"):
             st.image("StayLogo2.jpg", width="stretch")
         else:
@@ -154,6 +155,19 @@ def render_sidebar(spotify_user):
 
         st.markdown("### Stay Independent Tool\n*Swiss Army Knife*")
         st.success(f"🟢 Συνδεδεμένος: **{spotify_user}**")
+        
+        # --- NEW PHASE 3 SNIPPET START ---
+        # Initialize MB auth silently in the background if possible
+        if "mb_auth_attempted" not in st.session_state:
+            init_mb_auth()
+            st.session_state["mb_auth_attempted"] = True
+            
+        if is_mb_authenticated():
+            st.success("🟢 MusicBrainz: **Συνδεδεμένος**")
+        else:
+            st.warning("🟡 MusicBrainz: **Μόνο Ανάγνωση**")
+        # --- NEW PHASE 3 SNIPPET END ---
+        
         st.divider()
 
 # --- Top section: Εργαλεία ---
