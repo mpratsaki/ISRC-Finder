@@ -45,6 +45,7 @@ from tools.page_musicbrainz_search import page_musicbrainz_search
 from tools.page_musicbrainz_work import page_musicbrainz_work
 from tools.page_settings import page_settings
 from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
+from tools.page_audio_id import page_audio_id
 
 st.set_page_config(
     page_title="Stay Independent Tool",
@@ -170,8 +171,7 @@ def render_sidebar(spotify_user):
         
         st.divider()
 
-    # --- Top section: Εργαλεία ---
-    st.sidebar.markdown("### 🛠️ Εργαλεία")
+st.sidebar.markdown("### 🛠️ Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
@@ -180,6 +180,7 @@ def render_sidebar(spotify_user):
     _nav_button("MusicBrainz Album Editions", "MusicBrainz Release Group")
     _nav_button("MusicBrainz Work Explorer", "MusicBrainz Work Explorer")
     _nav_button("MusicBrainz Explorer (Beta)", "MusicBrainz Explorer")
+    _nav_button("AcoustID Audio Scanner", "AcoustID Scanner")
 
     # --- Spacer to push the System block lower ---
     st.sidebar.markdown("<div style='height: 2.5rem'></div>", unsafe_allow_html=True)
@@ -255,6 +256,8 @@ elif current_page == "MusicBrainz Work Explorer":
     page_musicbrainz_work()
 elif current_page == "MusicBrainz Explorer":
     page_musicbrainz()
+elif current_page == "AcoustID Scanner":
+    page_audio_id()
 elif current_page == "Ιστορικό & Αρχεία":
     page_history(token, spotify_user)
 elif current_page == "Ρυθμίσεις":
