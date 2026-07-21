@@ -4,3 +4,4 @@ openpyxl
 supabase
 musicbrainzngs
 pandas
+python-docx
