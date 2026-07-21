@@ -4,7 +4,7 @@ app.py
 Stay Independent Tool - The Stay Independent Catalog Utility
 Streamlit web version (Playlist-to-Excel Generator)
 
-Version 2.0 - "Swiss Army Knife Edition"
+Version 2.1 - "Swiss Army Knife Edition"
 - Modular, state-based page routing (each page is a standalone function).
 - Scalable custom sidebar navigation with active-page highlighting.
 - New tools: Musixmatch Sync Checker, Metadata Health, Smart Links (Odesli),
@@ -35,6 +35,7 @@ from core.auth_spotify import (
     fetch_current_user,
 )
 from tools.page_catalog import page_catalog_generator
+from tools.page_label_copy import page_label_copy
 from tools.page_history import page_history
 from tools.page_isrc_finder import page_isrc_finder
 from tools.page_metadata import page_metadata_health
@@ -174,6 +175,7 @@ def render_sidebar(spotify_user):
 # --- Top section: Εργαλεία ---
     st.sidebar.markdown("### Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
+    _nav_button("Label Copy", "Label Copy")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
     _nav_button("MusicBrainz Universal Search", "MusicBrainz Search")
@@ -242,6 +244,8 @@ current_page = st.session_state.current_page
 
 if current_page == "Γεννήτρια Catalog":
     page_catalog_generator(token, spotify_user)
+elif current_page == "Label Copy":
+    page_label_copy(token, spotify_user)
 elif current_page == "ISRC Finder":
     page_isrc_finder(token)
 elif current_page == "Metadata Health":
