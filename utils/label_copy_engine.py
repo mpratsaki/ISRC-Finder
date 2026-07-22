@@ -835,6 +835,9 @@ def extract_musicbrainz_credits(
         return normalized, labels
 
     entity_keys = {
+        "id",             
+        "title",          
+        "length",         
         "recording",
         "work",
         "release",
@@ -1037,7 +1040,12 @@ def _select_recording_candidate(
         scored.append((score, candidate))
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    return scored[0][1]
+    best_score, best_candidate = scored[0]
+    
+    if best_score < 0.55:
+        return None
+        
+    return best_candidate
 
 
 def make_musicbrainz_credit_fetcher(
