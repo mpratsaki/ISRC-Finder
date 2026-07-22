@@ -1795,7 +1795,7 @@ def page_label_copy(token: str, spotify_user: str) -> None:
         ["Σύνοψη", "Προεπισκόπηση", "Σφάλματα & Logs"]
     )
 
-with tab_summary:
+    with tab_summary:
         current_warnings = validate_label_copy_data(reviewed_data)
         m1, m2, m3 = st.columns(3)
         m1.metric("Σύνολο Τραγουδιών", len(reviewed_data.get("tracks", [])))
