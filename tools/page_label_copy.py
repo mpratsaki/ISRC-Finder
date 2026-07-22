@@ -34,6 +34,7 @@ import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
+from utils.tidal_api import fetch_tidal_credits_full_by_isrc
 
 import pandas as pd
 import requests
