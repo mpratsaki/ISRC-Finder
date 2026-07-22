@@ -123,6 +123,70 @@ def _tidal_get(url, params=None, retries=3):
     return None, last_note
 
 
+def fetch_tidal_contributors_by_isrc(isrc):
+    """
+    Finds the first Tidal track by ISRC and returns unique contributor names for
+    Composer/Lyricist/Writer/Author/Producer roles only.
+    Returns (names, note_if_fallback_needed).
+    """
+    try:
+        clean_isrc = str(isrc or "").replace("-", "").strip().upper()
+        if not clean_isrc:
+            return [], "Missing ISRC — used Spotify artists as fallback"
+        if not validate_isrc(clean_isrc):
+            return [], "ISRC format invalid — used Spotify artists as fallback"
+
+        search_data, note = _tidal_get(
+            "https://api.tidal.com/v1/tracks",
+            params={"isrc": clean_isrc, "countryCode": TIDAL_COUNTRY_CODE},
+        )
+        if note or not search_data:
+            return [], note or "Tidal credits not found — used Spotify artists as fallback"
+
+        track_items = _extract_items(search_data)
+        if not track_items:
+            return [], "Tidal credits not found — used Spotify artists as fallback"
+
+        tidal_track_id = track_items[0].get("id") if isinstance(track_items[0], dict) else None
+        if not tidal_track_id:
+            return [], "Tidal track ID missing — used Spotify artists as fallback"
+
+        contributors_data, note = _tidal_get(
+            f"https://api.tidal.com/v1/tracks/{tidal_track_id}/contributors",
+            params={"countryCode": TIDAL_COUNTRY_CODE},
+        )
+        if note or not contributors_data:
+            return [], note or "Tidal credits not found — used Spotify artists as fallback"
+
+        contributor_items = _extract_items(contributors_data)
+        if not contributor_items:
+            return [], "Tidal credits not found — used Spotify artists as fallback"
+
+        names = []
+        seen = set()
+        for item in contributor_items:
+            if not isinstance(item, dict):
+                continue
+
+            name = str(item.get("name") or "").strip()
+            role = item.get("role")
+            if not name or not _is_allowed_tidal_role(role):
+                continue
+
+            key = _lookup_key(name)
+            if key in seen:
+                continue
+            seen.add(key)
+            names.append(name)
+
+        if not names:
+            return [], "Tidal credits not found — used Spotify artists as fallback"
+
+        return names, None
+
+    except Exception:
+        return [], "Tidal lookup failed — used Spotify artists as fallback"
+
 # --------------------------------------------------------------------------
 # NEW: full, unfiltered Tidal credits for Label Copy
 # --------------------------------------------------------------------------
