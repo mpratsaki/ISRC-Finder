@@ -1804,47 +1804,21 @@ def page_label_copy(token: str, spotify_user: str) -> None:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        st.markdown("### 1. Λήψη Αρχικού Word (.docx)")
-        st.download_button(
-            label="⬇️ Λήψη Word (.docx)",
-            data=docx_bytes,
-            file_name=state["docx_filename"],
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            width="stretch",
-            type="primary",
-            key=f"label_copy_docx_download_{widget_suffix}",
-        )
-        
-        st.divider()
-        
-        st.markdown("### 2. Τελικό PDF & Αποθήκευση")
-        st.caption("Μπορείτε να χρησιμοποιήσετε το αυτόματο PDF, ή να κατεβάσετε το Word, να το διορθώσετε τοπικά, να το κάνετε Export ως PDF και να το ανεβάσετε εδώ για το αρχείο.")
-        
-        pdf_mode = st.radio(
-            "Μορφή PDF",
-            ["Αυτόματη δημιουργία", "Ανέβασμα διορθωμένου PDF"],
-            horizontal=True,
-            key=f"pdf_mode_{widget_suffix}"
-        )
-        
-        final_pdf_bytes = pdf_bytes
-        if pdf_mode == "Ανέβασμα διορθωμένου PDF":
-            uploaded_pdf = st.file_uploader("Ανεβάστε το τελικό PDF", type=["pdf"])
-            if uploaded_pdf is not None:
-                candidate_bytes = uploaded_pdf.read()
-                if not candidate_bytes.startswith(b"%PDF"):
-                    st.error("Το αρχείο δεν είναι έγκυρο PDF.")
-                    final_pdf_bytes = None
-                else:
-                    final_pdf_bytes = candidate_bytes
-                    st.success("Το χειροκίνητο PDF είναι έτοιμο.")
-            else:
-                final_pdf_bytes = None
-                
-        if final_pdf_bytes:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="⬇️ Λήψη Word (.docx)",
+                data=docx_bytes,
+                file_name=state["docx_filename"],
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                width="stretch",
+                type="primary",
+                key=f"label_copy_docx_download_{widget_suffix}",
+            )
+        with col2:
             st.download_button(
                 label="⬇️ Λήψη PDF",
-                data=final_pdf_bytes,
+                data=pdf_bytes,
                 file_name=state["pdf_filename"],
                 mime="application/pdf",
                 width="stretch",
@@ -1852,26 +1826,28 @@ def page_label_copy(token: str, spotify_user: str) -> None:
                 key=f"label_copy_pdf_download_{widget_suffix}",
             )
             
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("💾 Αποθήκευση στο Ιστορικό (Supabase)", type="primary", width="stretch", key=f"save_history_{widget_suffix}"):
-                with st.spinner("Αποθήκευση..."):
-                    try:
-                        urls, persistence_note = _upload_exports_to_supabase(
-                            spotify_user=spotify_user,
-                            project_name=_clean_text(reviewed_data.get("project_name")),
-                            track_count=len(reviewed_data.get("tracks", [])),
-                            docx_bytes=state["docx_bytes"],
-                            docx_filename=state["docx_filename"],
-                            pdf_bytes=final_pdf_bytes,
-                            pdf_filename=state["pdf_filename"],
-                        )
-                        state["supabase_urls"] = urls
-                        if persistence_note:
-                            st.warning(persistence_note)
-                        else:
-                            st.success("Τα αρχεία αποθηκεύτηκαν επιτυχώς στο Supabase!")
-                    except Exception as exc:
-                        st.error(f"Δεν ολοκληρώθηκε η αποθήκευση: {exc}")
+        st.divider()
+        
+        st.caption("Αφού κατεβάσετε και ελέγξετε τα αρχεία, μπορείτε να τα αποθηκεύσετε στο μόνιμο αρχείο της εταιρείας.")
+        if st.button("💾 Αποθήκευση στο Ιστορικό (Supabase)", type="primary", width="stretch", key=f"save_history_{widget_suffix}"):
+            with st.spinner("Αποθήκευση..."):
+                try:
+                    urls, persistence_note = _upload_exports_to_supabase(
+                        spotify_user=spotify_user,
+                        project_name=_clean_text(reviewed_data.get("project_name")),
+                        track_count=len(reviewed_data.get("tracks", [])),
+                        docx_bytes=state["docx_bytes"],
+                        docx_filename=state["docx_filename"],
+                        pdf_bytes=pdf_bytes,
+                        pdf_filename=state["pdf_filename"],
+                    )
+                    state["supabase_urls"] = urls
+                    if persistence_note:
+                        st.warning(persistence_note)
+                    else:
+                        st.success("Τα αρχεία αποθηκεύτηκαν επιτυχώς στο Supabase!")
+                except Exception as exc:
+                    st.error(f"Δεν ολοκληρώθηκε η αποθήκευση: {exc}")
 
     with tab_preview:
         _render_preview(reviewed_data)
@@ -1879,5 +1855,7 @@ def page_label_copy(token: str, spotify_user: str) -> None:
     with tab_logs:
         _render_logs(state, reviewed_data)
 
+
+__all__ = ["page_label_copy"]
 
 __all__ = ["page_label_copy"]
