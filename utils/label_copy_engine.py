@@ -1512,6 +1512,7 @@ def build_label_copy_data(
     musicbrainz_release: Mapping[str, Any] | None = None,
     musicbrainz_release_fetcher: Callable[..., Any] | None = None,
     musicbrainz_credits_fetcher: Callable[..., Any] | None = None,
+    tidal_credits_fetcher: Callable[..., Any] | None = None,
     now: datetime | None = None,
     company: str = DEFAULT_COMPANY,
     publisher: str = DEFAULT_PUBLISHER,
@@ -1756,9 +1757,20 @@ def build_label_copy_data(
         if advisory_note:
             _append_warning(warnings, f"{raw_title or f'Track {index}'}: {advisory_note}")
 
-        credits: dict[str, list[str]] = {}
-        credit_labels: dict[str, str] = {}
+# --- NEW: Tidal & MusicBrainz Merge ---
+        tidal_credits: dict[str, list[str]] = {}
+        tidal_labels: dict[str, str] = {}
+        tidal_note: str | None = None
+
+        if tidal_credits_fetcher is not None and validate_isrc(isrc):
+            raw_tidal, tidal_note = _invoke_callable(tidal_credits_fetcher, isrc, isrc=isrc, track=track)
+            if raw_tidal:
+                tidal_credits, tidal_labels = normalize_credit_map(raw_tidal)
+
+        mb_credits: dict[str, list[str]] = {}
+        mb_labels: dict[str, str] = {}
         credits_note: str | None = None
+
         if musicbrainz_credits_fetcher is not None and validate_isrc(isrc):
             credit_payload, credits_note = _invoke_callable(
                 musicbrainz_credits_fetcher,
@@ -1767,17 +1779,21 @@ def build_label_copy_data(
                 track=track,
             )
             if credit_payload is not None:
-                credits, credit_labels = _coerce_credits_payload(credit_payload)
+                mb_credits, mb_labels = _coerce_credits_payload(credit_payload)
+
+        # Merge them (Tidal goes first, so it has priority)
+        credits, credit_labels = merge_credit_maps(
+            (tidal_credits, tidal_labels),
+            (mb_credits, mb_labels)
+        )
+
+        if tidal_note:
+            _append_warning(warnings, f"Tidal credits για «{raw_title or index}»: {tidal_note}")
         if credits_note:
-            _append_warning(
-                warnings,
-                f"MusicBrainz credits για «{raw_title or f'Track {index}'}»: {credits_note}",
-            )
-        if musicbrainz_credits_fetcher is not None and validate_isrc(isrc) and not credits:
-            _append_warning(
-                warnings,
-                f"Δεν βρέθηκαν αυτόματα credits για το track «{raw_title or index}».",
-            )
+            _append_warning(warnings, f"MusicBrainz credits για «{raw_title or index}»: {credits_note}")
+        if (musicbrainz_credits_fetcher is not None or tidal_credits_fetcher is not None) and validate_isrc(isrc) and not credits:
+            _append_warning(warnings, f"Δεν βρέθηκαν αυτόματα credits για το track «{raw_title or index}».")
+        # --- END NEW ---
 
         lyrics_language = _clean_text(lyrics_language_suggestion) or None
         audio_channel = _clean_text(audio_channel_default) or None
@@ -1803,7 +1819,7 @@ def build_label_copy_data(
             "subgenre": "missing",
             "lyrics_language": "suggestion" if lyrics_language else "missing",
             "parental_advisory": advisory_source,
-            "credits": "musicbrainz" if credits else "missing",
+            "credits": "tidal" if tidal_credits else ("musicbrainz" if mb_credits else "missing"),
             "publisher": "default" if publisher else "missing",
             "resource_type": "static",
             "audio_channel": "default" if audio_channel else "missing",
