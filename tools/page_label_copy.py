@@ -984,6 +984,9 @@ def _resolve_release(
             unsafe_allow_html=True,
         )
 
+# Check if Tidal is enabled in Secrets
+    use_tidal = st.secrets.get("ENABLE_TIDAL_FULL_CREDITS", False)
+    
     data = build_label_copy_data(
         spotify_release,
         spotify_tracks,
@@ -991,6 +994,7 @@ def _resolve_release(
         itunes_fetcher=None if explicit_itunes_release is not None else fetch_itunes_release,
         musicbrainz_release_fetcher=release_fetcher,
         musicbrainz_credits_fetcher=credit_fetcher,
+        tidal_credits_fetcher=fetch_tidal_credits_full_by_isrc if use_tidal else None, # <--- ΠΡΟΣΤΕΘΗΚΕ
         progress_callback=build_progress,
         ensure_single_release=True,
     )
