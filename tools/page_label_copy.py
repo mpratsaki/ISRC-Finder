@@ -2,22 +2,6 @@
 tools/page_label_copy.py
 
 Streamlit page for the Stay Independent "Label Copy" workflow.
-
-The page performs four distinct steps:
-1. Resolve a release from a Spotify album URL, an Apple Music/iTunes album URL,
-   or one of the logged-in user's Spotify playlists.
-2. Build canonical LabelCopyData through the Phase 1 data layer.
-3. Present release, track and credit fields in ``st.data_editor`` for explicit
-   correction and confirmation.
-4. Render DOCX/PDF exports, then attempt Supabase persistence without ever
-   blocking the local download buttons.
-
-Approved provider policy:
-- Spotify supplies release identity and track data.
-- The free iTunes Search/Lookup API supplies genre enrichment and cross-checks.
-- Existing ``utils.musicbrainz_api`` wrappers supply recording/work
-  relationships when available.
-- TIDAL APIs and paid Apple Music/MusicKit APIs are not used.
 """
 
 from __future__ import annotations
@@ -58,13 +42,6 @@ from utils.label_copy_engine import (
     validate_isrc,
     validate_label_copy_data,
 )
-from utils.pdf_engine import (
-    PdfFontError,
-    PdfRenderError,
-    generate_label_copy_pdf,
-    make_label_copy_pdf_filename,
-)
-
 
 SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_REQUEST_TIMEOUT = (5, 25)
@@ -122,10 +99,6 @@ CONFIRMABLE_RELEASE_FIELDS = {
     "metadata_language": "metadata_language_confirmed",
 }
 
-
-# ---------------------------------------------------------------------------
-# Generic helpers
-# ---------------------------------------------------------------------------
 def _clean_text(value: Any) -> str:
     if value is None:
         return ""
@@ -137,13 +110,11 @@ def _clean_text(value: Any) -> str:
         pass
     return re.sub(r"\s+", " ", str(value).strip())
 
-
 def _comparison_key(value: Any) -> str:
     text = unicodedata.normalize("NFKD", _clean_text(value)).casefold()
     text = "".join(char for char in text if not unicodedata.combining(char))
     text = re.sub(r"[^a-z0-9]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
-
 
 def _similarity(left: Any, right: Any) -> float:
     left_key = _comparison_key(left)
@@ -153,7 +124,6 @@ def _similarity(left: Any, right: Any) -> float:
     if left_key == right_key:
         return 1.0
     return difflib.SequenceMatcher(None, left_key, right_key).ratio()
-
 
 def _as_int(value: Any, default: int | None = None) -> int | None:
     if value is None or isinstance(value, bool):
@@ -168,7 +138,6 @@ def _as_int(value: Any, default: int | None = None) -> int | None:
     except (TypeError, ValueError):
         return default
 
-
 def _unique_texts(values: Iterable[Any]) -> list[str]:
     output: list[str] = []
     seen: set[str] = set()
@@ -181,7 +150,6 @@ def _unique_texts(values: Iterable[Any]) -> list[str]:
         output.append(text)
     return output
 
-
 def _split_names(value: Any) -> list[str]:
     text = _clean_text(value)
     if not text:
@@ -192,18 +160,15 @@ def _split_names(value: Any) -> list[str]:
         if _clean_text(part)
     )
 
-
 def _source_badge(source: Any) -> str:
     key = _clean_text(source).lower()
     return SOURCE_BADGES.get(key, f"⚪ {key or 'unknown'}")
-
 
 def _source_value(data: Mapping[str, Any], field: str) -> str:
     sources = data.get("sources")
     if isinstance(sources, Mapping):
         return _clean_text(sources.get(field)) or "missing"
     return "missing"
-
 
 def _track_source_summary(track: Mapping[str, Any]) -> str:
     sources = track.get("sources")
@@ -217,11 +182,9 @@ def _track_source_summary(track: Mapping[str, Any]) -> str:
     unique = _unique_texts(ordered)
     return " · ".join(_source_badge(source) for source in unique) or _source_badge("missing")
 
-
 def _stable_state_key(value: Any) -> str:
     digest = hashlib.sha1(_clean_text(value).encode("utf-8")).hexdigest()[:16]
     return f"{SESSION_STATE_PREFIX}{digest}"
-
 
 def _render_duration_editor(duration_ms: Any) -> str:
     milliseconds = max(_as_int(duration_ms, 0) or 0, 0)
@@ -231,7 +194,6 @@ def _render_duration_editor(duration_ms: Any) -> str:
     if hours:
         return f"{hours}:{minutes:02d}:{seconds:02d}"
     return f"{minutes}:{seconds:02d}"
-
 
 def _parse_duration_editor(value: Any, fallback_ms: int = 0) -> int:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -257,7 +219,6 @@ def _parse_duration_editor(value: Any, fallback_ms: int = 0) -> int:
         raise ValueError(f"Μη έγκυρη διάρκεια «{text}».")
     return ((hours * 3600) + (minutes * 60) + seconds) * 1000
 
-
 def _is_filled(value: Any) -> bool:
     if value is None:
         return False
@@ -268,7 +229,6 @@ def _is_filled(value: Any) -> bool:
     if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray)):
         return any(_is_filled(item) for item in value)
     return True
-
 
 def _count_auto_filled_fields(data: Mapping[str, Any]) -> int:
     count = 0
@@ -319,16 +279,11 @@ def _count_auto_filled_fields(data: Mapping[str, Any]) -> int:
                     count += 1
     return count
 
-
 def _append_unique(target: list[str], value: Any) -> None:
     text = _clean_text(value)
     if text and text not in target:
         target.append(text)
 
-
-# ---------------------------------------------------------------------------
-# Release input parsing
-# ---------------------------------------------------------------------------
 def _parse_release_input(value: Any) -> tuple[str | None, str | None, str | None]:
     text = _clean_text(value)
     if not text:
@@ -357,20 +312,14 @@ def _parse_release_input(value: Any) -> tuple[str | None, str | None, str | None
         None,
         None,
         "Ο σύνδεσμος δεν αναγνωρίστηκε. Χρησιμοποιήστε Spotify album URL/URI, "
-        "Apple Music album URL ή Spotify album ID 22 χαρακτήρων. Τα Spotify IDs "
-        "είναι case-sensitive.",
+        "Apple Music album URL ή Spotify album ID 22 χαρακτήρων.",
     )
 
-
-# ---------------------------------------------------------------------------
-# Safe Spotify network layer
-# ---------------------------------------------------------------------------
 def _retry_after_seconds(value: Any, default: float = 1.0) -> float:
     try:
         return max(0.0, min(float(value), 30.0))
     except (TypeError, ValueError):
         return default
-
 
 @st.cache_data(ttl=SPOTIFY_CACHE_TTL_SECONDS, show_spinner=False)
 def _spotify_get_json(
@@ -378,7 +327,6 @@ def _spotify_get_json(
     url: str,
     params: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Bounded, cached Spotify GET. Never raises into the page path."""
     headers = {"Authorization": f"Bearer {token}"}
     last_note = "Αποτυχία επικοινωνίας με το Spotify."
 
@@ -429,7 +377,6 @@ def _spotify_get_json(
         return dict(payload), None
 
     return None, last_note
-
 
 def _fetch_spotify_album_bundle(
     token: str,
@@ -498,7 +445,6 @@ def _fetch_spotify_album_bundle(
 
     return album, tracks, notes
 
-
 def _fetch_playlist_album_id(
     token: str,
     playlist_id: str,
@@ -521,10 +467,7 @@ def _fetch_playlist_album_id(
             break
         items = page.get("items")
         if not isinstance(items, list):
-            _append_unique(
-                notes,
-                "Δεν επιστράφηκε περιεχόμενο playlist. Η playlist πρέπει να είναι δική σας ή collaborative.",
-            )
+            _append_unique(notes, "Δεν επιστράφηκε περιεχόμενο playlist. Η playlist πρέπει να είναι δική σας ή collaborative.")
             break
         for entry in items:
             if not isinstance(entry, Mapping):
@@ -547,13 +490,9 @@ def _fetch_playlist_album_id(
         _append_unique(notes, "Η playlist δεν περιέχει αναγνωρίσιμα Spotify album tracks.")
         return None, item_count, notes
     if len(unique_album_ids) > 1:
-        _append_unique(
-            notes,
-            f"Η playlist περιέχει tracks από {len(unique_album_ids)} διαφορετικές κυκλοφορίες.",
-        )
+        _append_unique(notes, f"Η playlist περιέχει tracks από {len(unique_album_ids)} διαφορετικές κυκλοφορίες.")
         return None, item_count, notes
     return unique_album_ids[0], item_count, notes
-
 
 def _spotify_album_search_score(
     candidate: Mapping[str, Any],
@@ -571,14 +510,10 @@ def _spotify_album_search_score(
     artist_score = _similarity(candidate_artists, artist) if artist else 0.75
     candidate_count = _as_int(candidate.get("total_tracks"))
     if expected_track_count and candidate_count:
-        count_score = max(
-            0.0,
-            1.0 - abs(candidate_count - expected_track_count) / max(expected_track_count, 1),
-        )
+        count_score = max(0.0, 1.0 - abs(candidate_count - expected_track_count) / max(expected_track_count, 1))
     else:
         count_score = 0.5
     return (title_score * 0.62) + (artist_score * 0.30) + (count_score * 0.08)
-
 
 def _search_spotify_album(
     token: str,
@@ -627,28 +562,19 @@ def _search_spotify_album(
         note = f"Η Apple→Spotify αντιστοίχιση χρειάζεται επιβεβαίωση ({score:.0%})."
     return album_id, note
 
-
-# ---------------------------------------------------------------------------
-# Existing MusicBrainz wrapper adapters
-# ---------------------------------------------------------------------------
 def _unwrap_fetcher_result(result: Any) -> tuple[Any, str | None]:
     if isinstance(result, tuple) and len(result) == 2:
         return result[0], _clean_text(result[1]) or None
     return result, None
-
 
 def _filtered_kwargs(func: Callable[..., Any], kwargs: Mapping[str, Any]) -> dict[str, Any]:
     try:
         signature = inspect.signature(func)
     except (TypeError, ValueError):
         return dict(kwargs)
-    if any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD
-        for parameter in signature.parameters.values()
-    ):
+    if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()):
         return dict(kwargs)
     return {key: value for key, value in kwargs.items() if key in signature.parameters}
-
 
 def _call_variants(
     func: Callable[..., Any],
@@ -670,7 +596,6 @@ def _call_variants(
             return None, str(exc)
     return None, type_errors[-1] if type_errors else "Δεν επέστρεψε δεδομένα ο MusicBrainz wrapper."
 
-
 def _first_callable(module: Any, names: Sequence[str]) -> tuple[Callable[..., Any] | None, str]:
     for name in names:
         candidate = getattr(module, name, None)
@@ -678,12 +603,7 @@ def _first_callable(module: Any, names: Sequence[str]) -> tuple[Callable[..., An
             return candidate, name
     return None, ""
 
-
-def _musicbrainz_adapters() -> tuple[
-    Callable[..., Any] | None,
-    Callable[..., Any] | None,
-    list[str],
-]:
+def _musicbrainz_adapters() -> tuple[Callable[..., Any] | None, Callable[..., Any] | None, list[str]]:
     notes: list[str] = []
     try:
         module = importlib.import_module("utils.musicbrainz_api")
@@ -692,48 +612,22 @@ def _musicbrainz_adapters() -> tuple[
 
     recording_search, recording_search_name = _first_callable(
         module,
-        (
-            "mb_search_recordings_by_isrc",
-            "mb_find_recordings_by_isrc",
-            "mb_search_recording_by_isrc",
-            "mb_search_recordings",
-            "mb_search_recording",
-        ),
+        ("mb_search_recordings_by_isrc", "mb_find_recordings_by_isrc", "mb_search_recording_by_isrc", "mb_search_recordings", "mb_search_recording"),
     )
-    get_recording, get_recording_name = _first_callable(
-        module,
-        ("mb_get_recording", "get_recording"),
-    )
-    get_work, get_work_name = _first_callable(
-        module,
-        ("mb_get_work", "get_work"),
-    )
+    get_recording, get_recording_name = _first_callable(module, ("mb_get_recording", "get_recording"))
+    get_work, get_work_name = _first_callable(module, ("mb_get_work", "get_work"))
 
     credit_fetcher: Callable[..., Any] | None = None
     if recording_search and get_recording:
-
         def find_recordings_by_isrc(isrc: str, **_: Any) -> tuple[Any, str | None]:
             query = f'isrc:"{isrc}"'
             if "isrc" in recording_search_name:
-                variants = (
-                    ((isrc,), {}),
-                    ((), {"isrc": isrc}),
-                    ((query,), {"limit": 10}),
-                )
+                variants = (((isrc,), {}), ((), {"isrc": isrc}), ((query,), {"limit": 10}))
             else:
-                variants = (
-                    ((query,), {"limit": 10}),
-                    ((), {"query": query, "limit": 10}),
-                    ((), {"isrc": isrc, "limit": 10}),
-                )
+                variants = (((query,), {"limit": 10}), ((), {"query": query, "limit": 10}), ((), {"isrc": isrc, "limit": 10}))
             return _call_variants(recording_search, variants)
 
-        def fetch_recording(
-            recording_id: str,
-            *,
-            includes: Sequence[str] | None = None,
-            **_: Any,
-        ) -> tuple[Any, str | None]:
+        def fetch_recording(recording_id: str, *, includes: Sequence[str] | None = None, **_: Any) -> tuple[Any, str | None]:
             include_list = list(includes or ["artist-rels", "work-rels"])
             return _call_variants(
                 get_recording,
@@ -745,12 +639,7 @@ def _musicbrainz_adapters() -> tuple[
                 ),
             )
 
-        def fetch_work(
-            work_id: str,
-            *,
-            includes: Sequence[str] | None = None,
-            **_: Any,
-        ) -> tuple[Any, str | None]:
+        def fetch_work(work_id: str, *, includes: Sequence[str] | None = None, **_: Any) -> tuple[Any, str | None]:
             if not get_work:
                 return None, "Δεν υπάρχει mb_get_work wrapper."
             include_list = list(includes or ["artist-rels"])
@@ -769,83 +658,35 @@ def _musicbrainz_adapters() -> tuple[
             get_recording=fetch_recording,
             get_work=fetch_work if get_work else None,
         )
-        notes.append(
-            "MusicBrainz credits: "
-            f"{recording_search_name} → {get_recording_name}"
-            + (f" → {get_work_name}" if get_work_name else "")
-        )
+        notes.append(f"MusicBrainz credits: {recording_search_name} → {get_recording_name}" + (f" → {get_work_name}" if get_work_name else ""))
     else:
-        notes.append(
-            "Δεν βρέθηκαν συμβατοί MusicBrainz recording/work wrappers· τα credits θα μείνουν για manual entry."
-        )
+        notes.append("Δεν βρέθηκαν συμβατοί MusicBrainz recording/work wrappers· τα credits θα μείνουν για manual entry.")
 
-    release_barcode_search, release_barcode_name = _first_callable(
-        module,
-        (
-            "mb_search_releases_by_barcode",
-            "mb_find_releases_by_barcode",
-            "mb_search_release_by_barcode",
-        ),
-    )
-    generic_release_search, generic_release_name = _first_callable(
-        module,
-        ("mb_search_releases", "mb_search_release"),
-    )
+    release_barcode_search, release_barcode_name = _first_callable(module, ("mb_search_releases_by_barcode", "mb_find_releases_by_barcode", "mb_search_release_by_barcode"))
+    generic_release_search, generic_release_name = _first_callable(module, ("mb_search_releases", "mb_search_release"))
 
     release_fetcher: Callable[..., Any] | None = None
     if release_barcode_search or generic_release_search:
-
-        def fetch_release(
-            *,
-            upc: str = "",
-            barcode: str = "",
-            title: str = "",
-            artist: str = "",
-            track_count: int | None = None,
-            **_: Any,
-        ) -> tuple[Any, str | None]:
+        def fetch_release(*, upc: str = "", barcode: str = "", title: str = "", artist: str = "", track_count: int | None = None, **_: Any) -> tuple[Any, str | None]:
             clean_barcode = re.sub(r"\D+", "", _clean_text(upc or barcode))
             if clean_barcode and release_barcode_search:
-                data, note = _call_variants(
-                    release_barcode_search,
-                    (
-                        ((clean_barcode,), {}),
-                        ((), {"barcode": clean_barcode}),
-                        ((), {"upc": clean_barcode}),
-                    ),
-                )
+                data, note = _call_variants(release_barcode_search, (((clean_barcode,), {}), ((), {"barcode": clean_barcode}), ((), {"upc": clean_barcode})))
                 if data is not None:
                     return data, note
-
             if generic_release_search:
                 query_parts = []
-                if clean_barcode:
-                    query_parts.append(f"barcode:{clean_barcode}")
-                if title:
-                    query_parts.append(f'release:"{title}"')
-                if artist:
-                    query_parts.append(f'artist:"{artist}"')
+                if clean_barcode: query_parts.append(f"barcode:{clean_barcode}")
+                if title: query_parts.append(f'release:"{title}"')
+                if artist: query_parts.append(f'artist:"{artist}"')
                 query = " AND ".join(query_parts) or title
-                return _call_variants(
-                    generic_release_search,
-                    (
-                        ((query,), {"limit": 20}),
-                        ((), {"query": query, "limit": 20}),
-                        ((), {"barcode": clean_barcode, "release": title, "artist": artist}),
-                    ),
-                )
+                return _call_variants(generic_release_search, (((query,), {"limit": 20}), ((), {"query": query, "limit": 20}), ((), {"barcode": clean_barcode, "release": title, "artist": artist})))
             return None, "Δεν βρέθηκε MusicBrainz release wrapper."
 
         release_fetcher = fetch_release
-        used = release_barcode_name or generic_release_name
-        notes.append(f"MusicBrainz release fallback: {used}")
+        notes.append(f"MusicBrainz release fallback: {release_barcode_name or generic_release_name}")
 
     return credit_fetcher, release_fetcher, notes
 
-
-# ---------------------------------------------------------------------------
-# Canonical resolution orchestration
-# ---------------------------------------------------------------------------
 def _activity_html(current: int, total: int, title: str, detail: str = "") -> str:
     safe_title = html.escape(_clean_text(title))
     safe_detail = html.escape(_clean_text(detail))
@@ -858,7 +699,6 @@ def _activity_html(current: int, total: int, title: str, detail: str = "") -> st
     </div>
     """
 
-
 def _resolve_release(
     token: str,
     selection: dict[str, Any],
@@ -870,18 +710,12 @@ def _resolve_release(
     provider = _clean_text(selection.get("provider"))
     release_id = _clean_text(selection.get("release_id"))
 
-    live_status.markdown(
-        _activity_html(1, 5, "Ανάκτηση κυκλοφορίας", provider.upper()),
-        unsafe_allow_html=True,
-    )
+    live_status.markdown(_activity_html(1, 5, "Ανάκτηση κυκλοφορίας", provider.upper()), unsafe_allow_html=True)
     progress_bar.progress(0.08)
 
     explicit_itunes_release = None
     if provider == "apple":
-        explicit_itunes_release, apple_note = fetch_itunes_release(
-            collection_id=release_id,
-            country="GR",
-        )
+        explicit_itunes_release, apple_note = fetch_itunes_release(collection_id=release_id, country="GR")
         if apple_note:
             _append_unique(logs, f"iTunes: {apple_note}")
         if not explicit_itunes_release:
@@ -890,101 +724,63 @@ def _resolve_release(
         artist = _clean_text(explicit_itunes_release.get("artist_name"))
         album = _clean_text(explicit_itunes_release.get("collection_name"))
         expected_count = _as_int(explicit_itunes_release.get("track_count"))
-        spotify_album_id, match_note = _search_spotify_album(
-            token,
-            artist=artist,
-            album=album,
-            expected_track_count=expected_count,
-        )
+        spotify_album_id, match_note = _search_spotify_album(token, artist=artist, album=album, expected_track_count=expected_count)
         if match_note:
             _append_unique(logs, match_note)
         if not spotify_album_id:
-            raise RuntimeError(
-                "Η Apple κυκλοφορία βρέθηκε, αλλά δεν αντιστοιχίστηκε με επαρκή βεβαιότητα στο Spotify."
-            )
+            raise RuntimeError("Η Apple κυκλοφορία βρέθηκε, αλλά δεν αντιστοιχίστηκε με επαρκή βεβαιότητα στο Spotify.")
         release_id = spotify_album_id
 
     elif provider == "playlist":
-        playlist_album_id, playlist_item_count, playlist_notes = _fetch_playlist_album_id(
-            token,
-            release_id,
-        )
+        playlist_album_id, playlist_item_count, playlist_notes = _fetch_playlist_album_id(token, release_id)
         for note in playlist_notes:
             _append_unique(logs, note)
         if not playlist_album_id:
-            raise RuntimeError(
-                "Η επιλεγμένη playlist δεν αντιστοιχεί σε μία μοναδική Spotify κυκλοφορία."
-            )
+            raise RuntimeError("Η επιλεγμένη playlist δεν αντιστοιχεί σε μία μοναδική Spotify κυκλοφορία.")
         release_id = playlist_album_id
         selection["playlist_item_count"] = playlist_item_count
 
     elif provider == "tidal":
-        raise RuntimeError(
-            "Ο σύνδεσμος TIDAL αναγνωρίστηκε, αλλά η αυτόματη TIDAL πρόσβαση είναι απενεργοποιημένη "
-            "βάσει της εγκεκριμένης πολιτικής API. Χρησιμοποιήστε το αντίστοιχο Spotify ή Apple Music URL."
-        )
+        raise RuntimeError("Ο σύνδεσμος TIDAL δεν υποστηρίζεται ως αρχική πηγή.")
 
     if provider not in {"spotify", "apple", "playlist"}:
         raise RuntimeError("Μη υποστηριζόμενος provider κυκλοφορίας.")
 
-    live_status.markdown(
-        _activity_html(2, 5, "Spotify release & tracklist", release_id),
-        unsafe_allow_html=True,
-    )
+    live_status.markdown(_activity_html(2, 5, "Spotify release & tracklist", release_id), unsafe_allow_html=True)
     progress_bar.progress(0.18)
 
     def spotify_track_progress(current: int, total: int, title: str) -> None:
         progress = 0.18 + (0.27 * (current / max(total, 1)))
         progress_bar.progress(min(progress, 0.45))
-        live_status.markdown(
-            _activity_html(current, total, title, "Ανάκτηση Spotify ISRC και πλήρων track fields"),
-            unsafe_allow_html=True,
-        )
+        live_status.markdown(_activity_html(current, total, title, "Ανάκτηση Spotify ISRC"), unsafe_allow_html=True)
 
-    spotify_release, spotify_tracks, spotify_notes = _fetch_spotify_album_bundle(
-        token,
-        release_id,
-        progress_callback=spotify_track_progress,
-    )
+    spotify_release, spotify_tracks, spotify_notes = _fetch_spotify_album_bundle(token, release_id, progress_callback=spotify_track_progress)
     for note in spotify_notes:
         _append_unique(logs, f"Spotify: {note}")
     if not spotify_release or not spotify_tracks:
-        raise RuntimeError("Δεν ήταν δυνατή η ανάκτηση της Spotify κυκλοφορίας και των tracks της.")
+        raise RuntimeError("Δεν ήταν δυνατή η ανάκτηση της Spotify κυκλοφορίας.")
 
     if provider == "playlist":
         playlist_count = _as_int(selection.get("playlist_item_count"), 0) or 0
         album_count = len(spotify_tracks)
         if playlist_count and playlist_count != album_count:
-            _append_unique(
-                logs,
-                f"Η playlist είχε {playlist_count} tracks· το Label Copy χρησιμοποιεί ολόκληρη την κυκλοφορία ({album_count} tracks).",
-            )
+            _append_unique(logs, f"Η playlist είχε {playlist_count} tracks· χρησιμοποιείται όλη η κυκλοφορία ({album_count} tracks).")
 
-    live_status.markdown(
-        _activity_html(3, 5, "iTunes genre enrichment", "Free iTunes Search/Lookup API"),
-        unsafe_allow_html=True,
-    )
+    live_status.markdown(_activity_html(3, 5, "iTunes genre enrichment", "Free iTunes API"), unsafe_allow_html=True)
     progress_bar.progress(0.50)
 
     credit_fetcher, release_fetcher, mb_notes = _musicbrainz_adapters()
     for note in mb_notes:
         _append_unique(logs, note)
 
-    live_status.markdown(
-        _activity_html(4, 5, "MusicBrainz credits", "artist-rels & work-rels"),
-        unsafe_allow_html=True,
-    )
+    live_status.markdown(_activity_html(4, 5, "MusicBrainz credits", "artist-rels & work-rels"), unsafe_allow_html=True)
     progress_bar.progress(0.56)
 
     def build_progress(current: int, total: int, title: str) -> None:
         progress = 0.56 + (0.40 * (current / max(total, 1)))
         progress_bar.progress(min(progress, 0.96))
-        live_status.markdown(
-            _activity_html(current, total, title, "Σύνθεση canonical LabelCopyData"),
-            unsafe_allow_html=True,
-        )
+        live_status.markdown(_activity_html(current, total, title, "Σύνθεση LabelCopyData"), unsafe_allow_html=True)
 
-# Check if Tidal is enabled in Secrets
     use_tidal = st.secrets.get("ENABLE_TIDAL_FULL_CREDITS", False)
     
     data = build_label_copy_data(
@@ -994,7 +790,7 @@ def _resolve_release(
         itunes_fetcher=None if explicit_itunes_release is not None else fetch_itunes_release,
         musicbrainz_release_fetcher=release_fetcher,
         musicbrainz_credits_fetcher=credit_fetcher,
-        tidal_credits_fetcher=fetch_tidal_credits_full_by_isrc if use_tidal else None, # <--- ΠΡΟΣΤΕΘΗΚΕ
+        tidal_credits_fetcher=fetch_tidal_credits_full_by_isrc if use_tidal else None,
         progress_callback=build_progress,
         ensure_single_release=True,
     )
@@ -1008,16 +804,9 @@ def _resolve_release(
         provider_matches["input_spotify_playlist_id"] = _clean_text(selection.get("release_id"))
 
     progress_bar.progress(1.0)
-    live_status.markdown(
-        _activity_html(5, 5, "Η επίλυση ολοκληρώθηκε", data.get("project_name")),
-        unsafe_allow_html=True,
-    )
+    live_status.markdown(_activity_html(5, 5, "Η επίλυση ολοκληρώθηκε", data.get("project_name")), unsafe_allow_html=True)
     return data, logs
 
-
-# ---------------------------------------------------------------------------
-# Review editor serialization
-# ---------------------------------------------------------------------------
 def _nested_value(data: Mapping[str, Any], field_key: str) -> Any:
     if "." not in field_key:
         value = data.get(field_key)
@@ -1027,7 +816,6 @@ def _nested_value(data: Mapping[str, Any], field_key: str) -> Any:
     root, child = field_key.split(".", 1)
     nested = data.get(root)
     return nested.get(child) if isinstance(nested, Mapping) else ""
-
 
 def _release_editor_rows(data: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -1041,17 +829,8 @@ def _release_editor_rows(data: Mapping[str, Any]) -> list[dict[str, Any]]:
             value = ""
         elif not isinstance(value, str):
             value = str(value)
-        rows.append(
-            {
-                "field_key": field_key,
-                "Πεδίο": label,
-                "Τιμή": value,
-                "Πηγή": _source_badge(source),
-                "Επιβεβαιωμένο": confirmed,
-            }
-        )
+        rows.append({"field_key": field_key, "Πεδίο": label, "Τιμή": value, "Πηγή": _source_badge(source), "Επιβεβαιωμένο": confirmed})
     return rows
-
 
 def _track_editor_rows(data: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -1090,17 +869,11 @@ def _track_editor_rows(data: Mapping[str, Any]) -> list[dict[str, Any]]:
         )
     return rows
 
-
 def _role_editor_label(role_id: str, labels: Mapping[str, Any]) -> str:
     if role_id in ROLE_DEFINITIONS:
         definition = ROLE_DEFINITIONS[role_id]
-        return _clean_text(definition.get("pdf_label")) or _clean_text(
-            definition.get("display_label")
-        )
-    return _clean_text(labels.get(role_id)) or role_id.removeprefix("other:").replace(
-        "_", " "
-    ).title()
-
+        return _clean_text(definition.get("docx_label") or definition.get("display_label"))
+    return _clean_text(labels.get(role_id)) or role_id.removeprefix("other:").replace("_", " ").title()
 
 def _credit_editor_rows(data: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -1133,20 +906,8 @@ def _credit_editor_rows(data: Mapping[str, Any]) -> list[dict[str, Any]]:
                     }
                 )
         else:
-            rows.append(
-                {
-                    "track_index": index - 1,
-                    "role_id": "",
-                    "original_role_label": "",
-                    "Α/Α": index,
-                    "Τίτλος": title,
-                    "Ρόλος": "",
-                    "Ονόματα": "",
-                    "Πηγή": _source_badge("missing"),
-                }
-            )
+            rows.append({"track_index": index - 1, "role_id": "", "original_role_label": "", "Α/Α": index, "Τίτλος": title, "Ρόλος": "", "Ονόματα": "", "Πηγή": _source_badge("missing")})
     return rows
-
 
 def _mark_manual_source(entity: dict[str, Any], field: str) -> None:
     sources = entity.setdefault("sources", {})
@@ -1158,15 +919,10 @@ def _mark_manual_source(entity: dict[str, Any], field: str) -> None:
             "source": "manual",
             "confidence": "high",
             "confirmed": True,
-            "detail": "Επεξεργασία χρήστη στο Label Copy review editor.",
+            "detail": "Επεξεργασία χρήστη.",
         }
 
-
-def _apply_release_edits(
-    data: dict[str, Any],
-    rows: Sequence[Mapping[str, Any]],
-    original: Mapping[str, Any],
-) -> None:
+def _apply_release_edits(data: dict[str, Any], rows: Sequence[Mapping[str, Any]], original: Mapping[str, Any]) -> None:
     for row in rows:
         field_key = _clean_text(row.get("field_key"))
         if not field_key:
@@ -1180,18 +936,7 @@ def _apply_release_edits(
             value = _clean_text(raw_value)
 
         if field_key == "product_type" and value not in VALID_PRODUCT_TYPES:
-            raise ValueError(
-                "Το Product Type πρέπει να είναι Album, Single, EP ή Compilation."
-            )
-        if field_key == "release_date_precision" and value not in {
-            "day",
-            "month",
-            "year",
-            "unknown",
-        }:
-            raise ValueError(
-                "Το Release Date Precision πρέπει να είναι day, month, year ή unknown."
-            )
+            raise ValueError("Το Product Type πρέπει να είναι Album, Single, EP ή Compilation.")
 
         if "." in field_key:
             root, child = field_key.split(".", 1)
@@ -1213,16 +958,8 @@ def _apply_release_edits(
         confirmation_key = CONFIRMABLE_RELEASE_FIELDS.get(root_field)
         if confirmation_key:
             data[confirmation_key] = bool(row.get("Επιβεβαιωμένο"))
-            provenance = data.setdefault("provenance", {})
-            if isinstance(provenance, dict) and isinstance(provenance.get(root_field), dict):
-                provenance[root_field]["confirmed"] = bool(row.get("Επιβεβαιωμένο"))
 
-
-def _apply_track_edits(
-    data: dict[str, Any],
-    rows: Sequence[Mapping[str, Any]],
-    original: Mapping[str, Any],
-) -> None:
+def _apply_track_edits(data: dict[str, Any], rows: Sequence[Mapping[str, Any]], original: Mapping[str, Any]) -> None:
     tracks = data.get("tracks")
     original_tracks = original.get("tracks")
     if not isinstance(tracks, list) or not isinstance(original_tracks, list):
@@ -1242,10 +979,7 @@ def _apply_track_edits(
             "disc_number": _as_int(row.get("Disc"), 1) or 1,
             "track_number": _as_int(row.get("Track"), index + 1) or index + 1,
             "title": _clean_text(row.get("Τίτλος")),
-            "duration_ms": _parse_duration_editor(
-                row.get("Διάρκεια"),
-                fallback_ms=_as_int(track.get("duration_ms"), 0) or 0,
-            ),
+            "duration_ms": _parse_duration_editor(row.get("Διάρκεια"), fallback_ms=_as_int(track.get("duration_ms"), 0) or 0),
             "primary_artists": _split_names(row.get("Primary Artist(s)")),
             "featured_artists": _split_names(row.get("Featured Artist(s)")),
             "isrc": normalize_isrc(row.get("ISRC")),
@@ -1267,27 +1001,15 @@ def _apply_track_edits(
         track["audio_channel_confirmed"] = bool(row.get("Επιβεβ. Channel"))
 
         p_line = track.setdefault("p_line", {})
-        if not isinstance(p_line, dict):
-            p_line = {}
-            track["p_line"] = p_line
         p_year = _as_int(row.get("(P) Έτος"))
         p_owner = _clean_text(row.get("(P) Owner"))
-        original_p = original_track.get("p_line") if isinstance(original_track.get("p_line"), Mapping) else {}
         p_line["year"] = p_year
         p_line["owner"] = p_owner
         p_line["confirmed"] = True
-        if p_year != original_p.get("year") or p_owner != _clean_text(original_p.get("owner")):
-            _mark_manual_source(track, "p_line")
 
-
-def _apply_credit_edits(
-    data: dict[str, Any],
-    rows: Sequence[Mapping[str, Any]],
-    original: Mapping[str, Any],
-) -> None:
+def _apply_credit_edits(data: dict[str, Any], rows: Sequence[Mapping[str, Any]], original: Mapping[str, Any]) -> None:
     tracks = data.get("tracks")
-    original_tracks = original.get("tracks")
-    if not isinstance(tracks, list) or not isinstance(original_tracks, list):
+    if not isinstance(tracks, list):
         return
 
     grouped: dict[int, list[Mapping[str, Any]]] = {}
@@ -1316,22 +1038,11 @@ def _apply_credit_edits(
             role_token = stored_role_id if stored_role_id and role_label == original_label else role_label
             normalized, labels = normalize_credit_map({role_token: names})
             for role_id, role_names in normalized.items():
-                merged_credits[role_id] = _unique_texts(
-                    [*merged_credits.get(role_id, []), *role_names]
-                )
+                merged_credits[role_id] = _unique_texts([*merged_credits.get(role_id, []), *role_names])
                 merged_labels.setdefault(role_id, labels.get(role_id, role_label))
 
-        original_track = original_tracks[index] if index < len(original_tracks) else {}
-        original_credits = (
-            original_track.get("credits")
-            if isinstance(original_track, Mapping) and isinstance(original_track.get("credits"), Mapping)
-            else {}
-        )
         track["credits"] = dict(merged_credits)
         track["credit_labels"] = merged_labels
-        if dict(merged_credits) != dict(original_credits):
-            _mark_manual_source(track, "credits")
-
 
 def _apply_review_edits(
     original_data: Mapping[str, Any],
@@ -1355,10 +1066,6 @@ def _apply_review_edits(
     reviewed["warnings"] = validate_label_copy_data(reviewed)
     return reviewed
 
-
-# ---------------------------------------------------------------------------
-# Supabase persistence
-# ---------------------------------------------------------------------------
 def _upload_exports_to_supabase(
     *,
     spotify_user: str,
@@ -1366,53 +1073,36 @@ def _upload_exports_to_supabase(
     track_count: int,
     docx_bytes: bytes,
     docx_filename: str,
-    pdf_bytes: bytes,
-    pdf_filename: str,
 ) -> tuple[list[str], str | None]:
-    """Uploads both files and inserts one export_history row per file."""
+    """Uploads ONLY the DOCX file to the export_history."""
     supabase = init_supabase()
     if not supabase or not _clean_text(spotify_user):
-        return [], "Το Supabase δεν είναι διαθέσιμο· τα downloads παραμένουν ενεργά."
+        return [], "Το Supabase δεν είναι διαθέσιμο· το download παραμένει ενεργό."
 
     timestamp = int(time.time())
     urls: list[str] = []
-    files = (
-        (
-            docx_filename,
-            docx_bytes,
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ),
-        (pdf_filename, pdf_bytes, "application/pdf"),
+    
+    storage_path = f"{spotify_user}/{timestamp}_{docx_filename}"
+    supabase.storage.from_("labelcopies").upload(
+        file=docx_bytes,
+        path=storage_path,
+        file_options={"content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
     )
-
-    for filename, payload, content_type in files:
-        storage_path = f"{spotify_user}/{timestamp}_{filename}"
-        supabase.storage.from_("labelcopies").upload(
-            file=payload,
-            path=storage_path,
-            file_options={"content-type": content_type},
-        )
-        public_url = supabase.storage.from_("labelcopies").get_public_url(storage_path)
-        urls.append(public_url)
-        supabase.table("export_history").insert(
-            {
-                "spotify_user": spotify_user,
-                "playlist_name": project_name,
-                "track_count": track_count,
-                "file_url": public_url,
-            }
-        ).execute()
+    public_url = supabase.storage.from_("labelcopies").get_public_url(storage_path)
+    urls.append(public_url)
+    
+    supabase.table("export_history").insert(
+        {
+            "spotify_user": spotify_user,
+            "playlist_name": project_name,
+            "track_count": track_count,
+            "file_url": public_url,
+        }
+    ).execute()
 
     return urls, None
 
-
-# ---------------------------------------------------------------------------
-# UI rendering
-# ---------------------------------------------------------------------------
-def _render_release_editor(
-    state: dict[str, Any],
-    widget_suffix: str,
-) -> pd.DataFrame:
+def _render_release_editor(state: dict[str, Any], widget_suffix: str) -> pd.DataFrame:
     seed = state.get("release_editor_rows") or _release_editor_rows(state["data"])
     edited = st.data_editor(
         pd.DataFrame(seed),
@@ -1431,11 +1121,7 @@ def _render_release_editor(
     state["release_editor_rows"] = edited.to_dict("records")
     return edited
 
-
-def _render_track_editor(
-    state: dict[str, Any],
-    widget_suffix: str,
-) -> pd.DataFrame:
+def _render_track_editor(state: dict[str, Any], widget_suffix: str) -> pd.DataFrame:
     seed = state.get("track_editor_rows") or _track_editor_rows(state["data"])
     edited = st.data_editor(
         pd.DataFrame(seed),
@@ -1464,11 +1150,7 @@ def _render_track_editor(
     state["track_editor_rows"] = edited.to_dict("records")
     return edited
 
-
-def _render_credit_editor(
-    state: dict[str, Any],
-    widget_suffix: str,
-) -> pd.DataFrame:
+def _render_credit_editor(state: dict[str, Any], widget_suffix: str) -> pd.DataFrame:
     seed = state.get("credit_editor_rows") or _credit_editor_rows(state["data"])
     edited = st.data_editor(
         pd.DataFrame(seed),
@@ -1483,22 +1165,13 @@ def _render_credit_editor(
             "original_role_label": None,
             "Α/Α": st.column_config.NumberColumn("Α/Α", min_value=1, step=1, width="small"),
             "Τίτλος": st.column_config.TextColumn("Τίτλος", width="large"),
-            "Ρόλος": st.column_config.TextColumn(
-                "Ρόλος",
-                help="π.χ. Written by, Music by, Arranged by, Drums, Recitation",
-                width="medium",
-            ),
-            "Ονόματα": st.column_config.TextColumn(
-                "Ονόματα",
-                help="Πολλαπλά ονόματα χωρισμένα με κόμμα",
-                width="large",
-            ),
+            "Ρόλος": st.column_config.TextColumn("Ρόλος", width="medium"),
+            "Ονόματα": st.column_config.TextColumn("Ονόματα", help="Πολλαπλά ονόματα χωρισμένα με κόμμα", width="large"),
             "Πηγή": st.column_config.TextColumn("Πηγή", width="medium"),
         },
     )
     state["credit_editor_rows"] = edited.to_dict("records")
     return edited
-
 
 def _render_preview(data: Mapping[str, Any]) -> None:
     release_rows = [
@@ -1515,10 +1188,6 @@ def _render_preview(data: Mapping[str, Any]) -> None:
         )},
     ]
     st.dataframe(pd.DataFrame(release_rows), hide_index=True, width="stretch")
-    st.caption(
-        "Στο PDF οι Featured Artists συγχωνεύονται στη γραμμή Primary Artist(s). "
-        "Στο DOCX παραμένουν σε ξεχωριστή γραμμή."
-    )
 
     tracks = data.get("tracks")
     if not isinstance(tracks, list):
@@ -1559,7 +1228,6 @@ def _render_preview(data: Mapping[str, Any]) -> None:
             else:
                 st.warning("Δεν υπάρχουν επιβεβαιωμένα credits για αυτό το track.")
 
-
 def _render_logs(state: Mapping[str, Any], data: Mapping[str, Any]) -> None:
     current_warnings = validate_label_copy_data(data)
     resolution_logs = _unique_texts(state.get("logs", []))
@@ -1584,29 +1252,19 @@ def _render_logs(state: Mapping[str, Any], data: Mapping[str, Any]) -> None:
         st.success("Όλα τα ISRC έχουν έγκυρη μορφή.")
 
     st.divider()
-    st.info(
-        "TIDAL credits δεν χρησιμοποιούνται. Τα αυτόματα credits προέρχονται μόνο από "
-        "MusicBrainz artist-rels/work-rels και απαιτούν έλεγχο χρήστη."
-    )
     if resolution_logs:
         with st.expander("API και logs αντιστοίχισης", expanded=False):
             for note in resolution_logs:
                 st.write(f"• {note}")
-    else:
-        st.caption("Δεν καταγράφηκαν πρόσθετα API logs.")
 
     persistence_note = _clean_text(state.get("persistence_note"))
     if persistence_note:
         st.divider()
         st.caption(f"Supabase: {persistence_note}")
 
-
 def page_label_copy(token: str, spotify_user: str) -> None:
     st.title("Label Copy")
-    st.caption(
-        "Δημιουργεί αυτόματα το label copy μιας κυκλοφορίας, επιτρέπει πλήρη έλεγχο "
-        "και διόρθωση των metadata και εξάγει Word και PDF έτοιμο για εκτύπωση."
-    )
+    st.caption("Δημιουργεί αυτόματα το label copy μιας κυκλοφορίας και εξάγει το τελικό Word template.")
 
     st.markdown("### Επιλογή Κυκλοφορίας")
     mode = st.radio(
@@ -1621,21 +1279,14 @@ def page_label_copy(token: str, spotify_user: str) -> None:
     if mode == "Σύνδεσμος Κυκλοφορίας":
         release_input = st.text_input(
             "Σύνδεσμος Album / Single / EP",
-            placeholder=(
-                "Spotify album URL / spotify:album:ID / Apple Music album URL"
-            ),
+            placeholder=("Spotify album URL / spotify:album:ID / Apple Music album URL"),
             key="label_copy_release_input",
         )
         provider, release_id, parse_note = _parse_release_input(release_input)
         if release_input and parse_note:
             st.caption(parse_note)
         if provider and release_id:
-            selection = {
-                "provider": provider,
-                "release_id": release_id,
-                "display_name": release_input,
-                "selection_key": f"{provider}:{release_id}",
-            }
+            selection = {"provider": provider, "release_id": release_id, "display_name": release_input, "selection_key": f"{provider}:{release_id}"}
     else:
         try:
             playlists = fetch_user_playlists(token)
@@ -1647,28 +1298,11 @@ def page_label_copy(token: str, spotify_user: str) -> None:
             st.warning("Δεν βρέθηκαν διαθέσιμες δικές σας ή collaborative playlists.")
         else:
             playlist_names = [item["name"] for item in playlists]
-            selected_name = st.selectbox(
-                "Επιλέξτε Playlist:",
-                playlist_names,
-                key="label_copy_playlist_select",
-            )
-            selected_playlist = next(
-                item for item in playlists if item["name"] == selected_name
-            )
-            selection = {
-                "provider": "playlist",
-                "release_id": selected_playlist["id"],
-                "display_name": selected_playlist["name"],
-                "selection_key": f"playlist:{selected_playlist['id']}",
-            }
+            selected_name = st.selectbox("Επιλέξτε Playlist:", playlist_names, key="label_copy_playlist_select")
+            selected_playlist = next(item for item in playlists if item["name"] == selected_name)
+            selection = {"provider": "playlist", "release_id": selected_playlist["id"], "display_name": selected_playlist["name"], "selection_key": f"playlist:{selected_playlist['id']}"}
 
-    resolve_trigger = st.button(
-        "Δημιουργία Label Copy",
-        type="primary",
-        width="stretch",
-        disabled=selection is None,
-        key="label_copy_resolve_button",
-    )
+    resolve_trigger = st.button("Δημιουργία Label Copy", type="primary", width="stretch", disabled=selection is None, key="label_copy_resolve_button")
 
     if resolve_trigger and selection:
         st.divider()
@@ -1676,23 +1310,10 @@ def page_label_copy(token: str, spotify_user: str) -> None:
         live_status = st.empty()
         progress_bar = st.progress(0.0)
         try:
-            data, logs = _resolve_release(
-                token,
-                selection,
-                progress_bar=progress_bar,
-                live_status=live_status,
-            )
+            data, logs = _resolve_release(token, selection, progress_bar=progress_bar, live_status=live_status)
             provider_matches = data.get("provider_matches")
-            resolved_album_id = (
-                _clean_text(provider_matches.get("resolved_spotify_release_id"))
-                if isinstance(provider_matches, Mapping)
-                else ""
-            )
-            state_identity = (
-                f"spotify-album:{resolved_album_id}"
-                if resolved_album_id
-                else selection["selection_key"]
-            )
+            resolved_album_id = _clean_text(provider_matches.get("resolved_spotify_release_id")) if isinstance(provider_matches, Mapping) else ""
+            state_identity = f"spotify-album:{resolved_album_id}" if resolved_album_id else selection["selection_key"]
             state_key = _stable_state_key(state_identity)
             st.session_state[state_key] = {
                 "data": data,
@@ -1703,9 +1324,7 @@ def page_label_copy(token: str, spotify_user: str) -> None:
                 "credit_editor_rows": _credit_editor_rows(data),
                 "reviewed_data": None,
                 "docx_bytes": None,
-                "pdf_bytes": None,
                 "docx_filename": None,
-                "pdf_filename": None,
                 "persistence_note": "",
             }
             st.session_state[SESSION_ACTIVE_KEY] = state_key
@@ -1722,10 +1341,7 @@ def page_label_copy(token: str, spotify_user: str) -> None:
 
     st.divider()
     st.markdown("### Επεξεργασία & Επιβεβαίωση")
-    st.caption(
-        "Οι πηγές εμφανίζονται με χρωματική ένδειξη. Συμπληρώστε τα κενά πεδία, "
-        "διορθώστε τυχόν ασυμφωνίες και ενεργοποιήστε τις επιβεβαιώσεις πριν την εξαγωγή."
-    )
+    st.caption("Συμπληρώστε τα κενά πεδία, διορθώστε τυχόν ασυμφωνίες και ενεργοποιήστε τις επιβεβαιώσεις πριν την εξαγωγή.")
 
     widget_suffix = active_state_key.removeprefix(SESSION_STATE_PREFIX)
     with st.expander("Πεδία κυκλοφορίας", expanded=True):
@@ -1734,17 +1350,8 @@ def page_label_copy(token: str, spotify_user: str) -> None:
         track_editor = _render_track_editor(state, widget_suffix)
     with st.expander("Συντελεστές ανά track", expanded=True):
         credit_editor = _render_credit_editor(state, widget_suffix)
-        st.caption(
-            "Για νέα credits προσθέστε γραμμή, ορίστε Α/Α track, φυσική ονομασία ρόλου "
-            "και ονόματα χωρισμένα με κόμμα."
-        )
 
-    generate_files = st.button(
-        "Παραγωγή Word & PDF",
-        type="primary",
-        width="stretch",
-        key=f"label_copy_render_{widget_suffix}",
-    )
+    generate_files = st.button("Παραγωγή Word", type="primary", width="stretch", key=f"label_copy_render_{widget_suffix}")
 
     if generate_files:
         try:
@@ -1755,45 +1362,33 @@ def page_label_copy(token: str, spotify_user: str) -> None:
                 credit_editor.to_dict("records"),
             )
 
-            with st.spinner("Φόρτωση DOCX template και παραγωγή αρχείων..."):
+            with st.spinner("Φόρτωση DOCX template και παραγωγή αρχείου..."):
                 template_config = get_label_copy_template_config()
                 template_bytes = fetch_private_label_copy_template_bytes(**template_config)
                 docx_buffer = generate_label_copy_docx(template_bytes, reviewed_data)
-                pdf_buffer = generate_label_copy_pdf(reviewed_data)
 
             docx_filename = make_label_copy_filename(
                 reviewed_data.get("project_name"),
                 extension="docx",
                 issue_date=reviewed_data.get("issue_date"),
             )
-            pdf_filename = make_label_copy_pdf_filename(
-                reviewed_data.get("project_name"),
-                issue_date=reviewed_data.get("issue_date"),
-            )
 
             state["reviewed_data"] = reviewed_data
             state["docx_bytes"] = docx_buffer.getvalue()
-            state["pdf_bytes"] = pdf_buffer.getvalue()
             state["docx_filename"] = docx_filename
-            state["pdf_filename"] = pdf_filename
             state["persistence_note"] = ""
 
-            st.toast("Τα Word και PDF δημιουργήθηκαν επιτυχώς.", icon="✅")
-        except (PdfFontError, PdfRenderError) as exc:
-            st.error(f"Σφάλμα PDF/Unicode font: {exc}")
+            st.toast("Το Word δημιουργήθηκε επιτυχώς.", icon="✅")
         except Exception as exc:
             st.error(f"Μη αναμενόμενο σφάλμα κατά την εξαγωγή: {exc}")
 
     reviewed_data = state.get("reviewed_data")
     docx_bytes = state.get("docx_bytes")
-    pdf_bytes = state.get("pdf_bytes")
-    if not isinstance(reviewed_data, Mapping) or not docx_bytes or not pdf_bytes:
+    if not isinstance(reviewed_data, Mapping) or not docx_bytes:
         return
 
     st.markdown("### 📄 Αποτελέσματα & Εξαγωγή")
-    tab_summary, tab_preview, tab_logs = st.tabs(
-        ["Σύνοψη", "Προεπισκόπηση", "Σφάλματα & Logs"]
-    )
+    tab_summary, tab_preview, tab_logs = st.tabs(["Σύνοψη", "Προεπισκόπηση", "Σφάλματα & Logs"])
 
     with tab_summary:
         current_warnings = validate_label_copy_data(reviewed_data)
@@ -1803,32 +1398,18 @@ def page_label_copy(token: str, spotify_user: str) -> None:
         m3.metric("Προειδοποιήσεις", len(current_warnings))
 
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                label="⬇️ Λήψη Word (.docx)",
-                data=docx_bytes,
-                file_name=state["docx_filename"],
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                width="stretch",
-                type="primary",
-                key=f"label_copy_docx_download_{widget_suffix}",
-            )
-        with col2:
-            st.download_button(
-                label="⬇️ Λήψη PDF",
-                data=pdf_bytes,
-                file_name=state["pdf_filename"],
-                mime="application/pdf",
-                width="stretch",
-                type="primary",
-                key=f"label_copy_pdf_download_{widget_suffix}",
-            )
+        st.download_button(
+            label="⬇️ Λήψη Word (.docx)",
+            data=docx_bytes,
+            file_name=state["docx_filename"],
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            width="stretch",
+            type="primary",
+            key=f"label_copy_docx_download_{widget_suffix}",
+        )
             
         st.divider()
-        
-        st.caption("Αφού κατεβάσετε και ελέγξετε τα αρχεία, μπορείτε να τα αποθηκεύσετε στο μόνιμο αρχείο της εταιρείας.")
+        st.caption("Αφού κατεβάσετε και ελέγξετε το αρχείο Word, μπορείτε να το αποθηκεύσετε στο μόνιμο αρχείο.")
         if st.button("💾 Αποθήκευση στο Ιστορικό (Supabase)", type="primary", width="stretch", key=f"save_history_{widget_suffix}"):
             with st.spinner("Αποθήκευση..."):
                 try:
@@ -1838,14 +1419,12 @@ def page_label_copy(token: str, spotify_user: str) -> None:
                         track_count=len(reviewed_data.get("tracks", [])),
                         docx_bytes=state["docx_bytes"],
                         docx_filename=state["docx_filename"],
-                        pdf_bytes=pdf_bytes,
-                        pdf_filename=state["pdf_filename"],
                     )
                     state["supabase_urls"] = urls
                     if persistence_note:
                         st.warning(persistence_note)
                     else:
-                        st.success("Τα αρχεία αποθηκεύτηκαν επιτυχώς στο Supabase!")
+                        st.success("Το αρχείο αποθηκεύτηκε επιτυχώς στο Supabase!")
                 except Exception as exc:
                     st.error(f"Δεν ολοκληρώθηκε η αποθήκευση: {exc}")
 
@@ -1854,8 +1433,5 @@ def page_label_copy(token: str, spotify_user: str) -> None:
 
     with tab_logs:
         _render_logs(state, reviewed_data)
-
-
-__all__ = ["page_label_copy"]
 
 __all__ = ["page_label_copy"]
