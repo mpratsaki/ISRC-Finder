@@ -180,15 +180,13 @@ def _set_label_value(paragraph: Paragraph, label: str, value: Any) -> None:
     _replace_range_across_runs(paragraph, label_end, len(full_text), replacement)
 
 def _set_dynamic_label_value(paragraphs: list[Paragraph], label: str, value: Any) -> None:
-    """Smart lookup supporting proper line breaks inside DOCX table cells."""
+    """Smart lookup supporting proper line breaks inside DOCX table cells without losing format."""
     raw_val = str(value or "").strip()
     for i, p in enumerate(paragraphs):
         if label in p.text:
-            # Inline value (e.g. "Label: Value")
             if len(p.text.strip()) > len(label.strip()) + 1 and not p.text.strip().endswith(":"):
                 _set_label_value(p, label, raw_val)
             else:
-                # Value in adjacent cell or next paragraph
                 target_p = None
                 tc = p._element.getparent()
                 while tc is not None and tc.tag != qn('w:tc'):
@@ -205,29 +203,33 @@ def _set_dynamic_label_value(paragraphs: list[Paragraph], label: str, value: Any
                                 next_tc_ps = list(next_tc.iter(qn('w:p')))
                                 if next_tc_ps:
                                     target_p = Paragraph(next_tc_ps[0], p._parent)
-                                    # Clear all remaining lines/returns in that cell
+                                    
+                                    # Διαγραφή περιττών κενών γραμμών από το κελί για να μην τεντώνει ο πίνακας
                                     for extra_p_node in next_tc_ps[1:]:
-                                        extra_p = Paragraph(extra_p_node, p._parent)
-                                        extra_p.clear()
+                                        parent_node = extra_p_node.getparent()
+                                        if parent_node is not None:
+                                            parent_node.remove(extra_p_node)
                         except ValueError:
                             pass
                 
-                # Fallback if not inside a table
                 if target_p is None and i + 1 < len(paragraphs):
                     target_p = paragraphs[i+1]
                     
                 if target_p is not None:
-                    rPr = deepcopy(target_p.runs[0]._r.rPr) if target_p.runs and target_p.runs[0]._r.rPr is not None else None
-                    target_p.clear()
-                    
-                    # Force DOCX line breaks (add_break) for each \n
                     lines = raw_val.split('\n')
-                    for idx, line in enumerate(lines):
-                        run = target_p.add_run(line)
-                        if rPr is not None:
-                            run._r.append(deepcopy(rPr))
-                        if idx < len(lines) - 1:
-                            run.add_break()
+                    if len(lines) == 1:
+                        # Αντικατάσταση που διατηρεί 100% το original στυλ
+                        _replace_range_across_runs(target_p, 0, len(target_p.text), raw_val)
+                    else:
+                        # Αν υπάρχουν αλλαγές γραμμής (όπως στα ποσοστά), χτίζουμε <w:br/> διατηρώντας το rPr
+                        rPr = deepcopy(target_p.runs[0]._r.rPr) if target_p.runs and target_p.runs[0]._r.rPr is not None else None
+                        target_p.clear()
+                        for idx, line in enumerate(lines):
+                            run = target_p.add_run(line)
+                            if rPr is not None:
+                                run._r.append(deepcopy(rPr))
+                            if idx < len(lines) - 1:
+                                run.add_break()
             return
 
 def _format_performers_with_percentages(names: list[str], total_performers: int) -> str:
@@ -236,7 +238,6 @@ def _format_performers_with_percentages(names: list[str], total_performers: int)
         return ""
     percentage = 100.0 / total_performers
     pct_str = f"{int(percentage)}%" if percentage.is_integer() else f"{percentage:.2f}%"
-    # Returns \n so _set_dynamic_label_value can convert it to true DOCX breaks
     return "\n".join(f"{name}\t\t{pct_str}" for name in names)
 
 def _format_rights_value(line: Any, fallback_owner: str = "") -> str:
@@ -403,26 +404,32 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
         paragraphs.extend(Paragraph(p, None) for p in node.xpath('.//w:p'))
         
     for p in paragraphs:
-        if "Track 1" in p.text:
-            title = _clean_text(track.get("title"))
-            duration_str = format_duration_docx(_duration_ms(track))
+        if "Track 1" in p.text and "Duration:" in p.text:
+            # Ανίχνευση του Dummy Title από το δικό σου template
+            match = re.search(r"Track 1:\s*(.*?)\s*Duration:", p.text)
+            template_title = match.group(1) if match else None
             
-            # Αντιγράφουμε το αρχικό style της παραγράφου για να μη χαθούν γραμματοσειρές/μεγέθη
-            rPr = deepcopy(p.runs[0]._r.rPr) if p.runs and p.runs[0]._r.rPr is not None else None
-            p.clear()
+            # Αντικατάσταση Track 1
+            _replace_first_across_runs(p, "Track 1", f"Track {display_number}", required=False)
             
-            left_text = f"Track {display_number}: {title}"
-            right_text = f"Duration: {duration_str}"
+            # Αντικατάσταση Τίτλου
+            new_title = _clean_text(track.get("title"))
+            if template_title:
+                _replace_first_across_runs(p, template_title, new_title, required=False)
+                
+                # Δυναμική προσαρμογή κενών για να μη σπάει η γραμμή ποτέ!
+                space_match = re.search(r"(\s{5,})Duration:", p.text)
+                if space_match:
+                    orig_spaces = space_match.group(1)
+                    len_diff = len(new_title) - len(template_title)
+                    new_space_count = max(2, len(orig_spaces) - len_diff)
+                    _replace_first_across_runs(p, orig_spaces, " " * new_space_count, required=False)
             
-            # Δυναμικός υπολογισμός κενών για στοίχιση δεξιά. 
-            # (Μια γραμμή Α4 χωράει περίπου 75 χαρακτήρες σε 10pt font)
-            spaces = max(5, 75 - len(left_text) - len(right_text))
+            # Αντικατάσταση Duration
+            dur_match = re.search(r"Duration:\s*(\d{2}:\d{2}:\d{2}|\d{2}:\d{2})", p.text)
+            if dur_match:
+                _replace_first_across_runs(p, dur_match.group(1), format_duration_docx(_duration_ms(track)), required=False)
             
-            run = p.add_run(f"{left_text}{' ' * spaces}{right_text}")
-            if rPr is not None:
-                run._r.append(deepcopy(rPr))
-            
-            run.bold = True
             break
             
     _set_dynamic_label_value(paragraphs, "Primary Artist(s):", ", ".join(_unique_texts(track.get("primary_artists", []))))
