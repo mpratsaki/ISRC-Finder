@@ -68,30 +68,55 @@ def page_audio_id():
             
             # Εξαγωγή και μορφοποίηση δεδομένων
             rows = []
+            unlinked_count = 0
             for match in matches:
                 score = match.get("score", 0)
+                acoustid_id = match.get("id", "—")
                 recordings = match.get("recordings", [])
+
+                if not recordings:
+                    # Το AcoustID βρήκε ταίριασμα αποτυπώματος, αλλά κανείς δεν το έχει
+                    # συνδέσει ακόμα με MusicBrainz Recording. Το δείχνουμε ούτως ή άλλως,
+                    # ώστε να φαίνεται τι ακριβώς βρέθηκε.
+                    unlinked_count += 1
+                    rows.append({
+                        "Ακρίβεια": f"{int(score * 100)}%",
+                        "Τίτλος": "— (χωρίς σύνδεση MusicBrainz)",
+                        "Καλλιτέχνης": "—",
+                        "Διάρκεια MB": "—",
+                        "Recording MBID": "—",
+                        "AcoustID": acoustid_id,
+                        "Link": f"https://acoustid.org/track/{acoustid_id}",
+                    })
+                    continue
+
                 for rec in recordings:
                     artists = [a.get("name") for a in rec.get("artists", [])]
                     artist_str = " / ".join(artists) if artists else "Άγνωστος Καλλιτέχνης"
-                    
+
                     rows.append({
                         "Ακρίβεια": f"{int(score * 100)}%",
                         "Τίτλος": rec.get("title", "—"),
                         "Καλλιτέχνης": artist_str,
                         "Διάρκεια MB": f"{rec.get('duration', 0)} δευτ.",
                         "Recording MBID": rec.get("id"),
-                        "Link": mb_entity_url("recording", rec.get("id"))
+                        "AcoustID": acoustid_id,
+                        "Link": mb_entity_url("recording", rec.get("id")),
                     })
 
-            if rows:
-                st.dataframe(
-                    pd.DataFrame(rows),
-                    width="stretch",
-                    hide_index=True,
-                    column_config={
-                        "Link": st.column_config.LinkColumn("MusicBrainz", display_text="Άνοιγμα 🔗")
-                    }
+            if unlinked_count:
+                st.info(
+                    f"{unlinked_count} από τα matches δεν έχουν συνδεδεμένο MusicBrainz "
+                    "Recording — το AcoustID αναγνώρισε μόνο το ηχητικό αποτύπωμα. "
+                    "Το link 'AcoustID' οδηγεί στη σελίδα του track στο acoustid.org, "
+                    "όπου μπορείς να δεις τι είναι."
                 )
-            else:
-                st.warning("Το AcoustID βρήκε match, αλλά χωρίς συνδεδεμένα MusicBrainz Recordings.")
+
+            st.dataframe(
+                pd.DataFrame(rows),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Link": st.column_config.LinkColumn("Σύνδεσμος", display_text="Άνοιγμα 🔗")
+                }
+            )
