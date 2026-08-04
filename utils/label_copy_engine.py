@@ -227,6 +227,15 @@ ROLE_DEFINITIONS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
             },
         ),
         (
+            "rapper",
+            {
+                "aliases": ("rapper", "rap", "mc"),
+                "docx_label": "Rapper(s)",
+                "pdf_label": "Rapper(s)",
+                "display_label": "Rapper",
+            },
+        ),        
+        (
             "guitarist",
             {
                 "aliases": (
