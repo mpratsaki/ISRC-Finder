@@ -2,7 +2,7 @@
 utils/docx_engine.py
 
 Fully dynamic, template-faithful DOCX renderer for canonical LabelCopyData.
-Supports nested tables and percentage-based performer logic for new templates.
+Supports nested tables, empty cells, and percentage-based performer logic.
 """
 
 from __future__ import annotations
@@ -184,26 +184,33 @@ def _set_dynamic_label_value(paragraphs: list[Paragraph], label: str, value: Any
     clean_val = str(value or "").strip()
     for i, p in enumerate(paragraphs):
         if label in p.text:
-            if len(p.text.strip()) > len(label.strip()) + 1:
+            # Αν η ετικέτα είναι στην ίδια γραμμή με την τιμή
+            if len(p.text.strip()) > len(label.strip()) + 1 and not p.text.strip().endswith(":"):
                 _set_label_value(p, label, clean_val)
             else:
-                for next_p in paragraphs[i+1:]:
-                    if next_p.text.strip():
-                        if "-[Insert" in next_p.text:
-                            _replace_range_across_runs(next_p, 0, len(next_p.text), clean_val)
-                        elif next_p.text.strip() == "%" or next_p.text.strip() == "100%":
-                            continue 
-                        else:
-                            _replace_range_across_runs(next_p, 0, len(next_p.text), clean_val)
-                        break
+                # Η τιμή μπαίνει στην αμέσως επόμενη παράγραφο (που είναι το διπλανό κελί του πίνακα)
+                if i + 1 < len(paragraphs):
+                    next_p = paragraphs[i+1]
+                    _replace_range_across_runs(next_p, 0, len(next_p.text), clean_val)
+                    
+                    # Καθαρισμός υπολειμμάτων: Αν το template είχε το σύμβολο % σε ξεχωριστή παράγραφο 
+                    # μέσα στο ΙΔΙΟ κελί, τη σβήνουμε για να μην τυπωθεί διπλή φορά.
+                    cell_node = next_p._element.getparent()
+                    if cell_node.tag == qn('w:tc'):
+                        offset = 2
+                        while i + offset < len(paragraphs):
+                            if paragraphs[i + offset]._element.getparent() == cell_node:
+                                _replace_range_across_runs(paragraphs[i + offset], 0, len(paragraphs[i + offset].text), "")
+                                offset += 1
+                            else:
+                                break
             return
 
-def _format_performers_with_percentages(names: list[str]) -> str:
+def _format_performers_with_percentages(names: list[str], total_performers: int) -> str:
     """Splits 100% ownership among multiple performers via DOCX line breaks."""
-    if not names:
+    if not names or total_performers == 0:
         return ""
-    count = len(names)
-    percentage = 100.0 / count
+    percentage = 100.0 / total_performers
     pct_str = f"{int(percentage)}%" if percentage.is_integer() else f"{percentage:.2f}%"
     return "\n".join(f"{name}\t\t{pct_str}" for name in names)
 
@@ -397,8 +404,11 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
     vocalists = fixed_credits.get("Vocalist(s)", [])
     rappers = fixed_credits.get("Rapper(s)", [])
     
-    _set_dynamic_label_value(paragraphs, "Vocalist(s):", _format_performers_with_percentages(vocalists))
-    _set_dynamic_label_value(paragraphs, "Rapper(s):", _format_performers_with_percentages(rappers))
+    # Υπολογισμός συνολικού πλήθους performes (και vocalists και rappers μαζί)
+    total_performers = len(vocalists) + len(rappers)
+    
+    _set_dynamic_label_value(paragraphs, "Vocalist(s):", _format_performers_with_percentages(vocalists, total_performers))
+    _set_dynamic_label_value(paragraphs, "Rapper(s):", _format_performers_with_percentages(rappers, total_performers))
     
     if other_lines:
         _set_dynamic_label_value(paragraphs, "Other Credits:", "\n".join(other_lines))
