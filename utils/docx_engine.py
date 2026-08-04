@@ -203,8 +203,6 @@ def _set_dynamic_label_value(paragraphs: list[Paragraph], label: str, value: Any
                                 next_tc_ps = list(next_tc.iter(qn('w:p')))
                                 if next_tc_ps:
                                     target_p = Paragraph(next_tc_ps[0], p._parent)
-                                    
-                                    # Διαγραφή περιττών κενών γραμμών από το κελί για να μην τεντώνει ο πίνακας
                                     for extra_p_node in next_tc_ps[1:]:
                                         parent_node = extra_p_node.getparent()
                                         if parent_node is not None:
@@ -218,10 +216,8 @@ def _set_dynamic_label_value(paragraphs: list[Paragraph], label: str, value: Any
                 if target_p is not None:
                     lines = raw_val.split('\n')
                     if len(lines) == 1:
-                        # Αντικατάσταση που διατηρεί 100% το original στυλ
                         _replace_range_across_runs(target_p, 0, len(target_p.text), raw_val)
                     else:
-                        # Αν υπάρχουν αλλαγές γραμμής (όπως στα ποσοστά), χτίζουμε <w:br/> διατηρώντας το rPr
                         rPr = deepcopy(target_p.runs[0]._r.rPr) if target_p.runs and target_p.runs[0]._r.rPr is not None else None
                         target_p.clear()
                         for idx, line in enumerate(lines):
@@ -405,31 +401,26 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
         
     for p in paragraphs:
         if "Track 1" in p.text and "Duration:" in p.text:
-            # Ανίχνευση του Dummy Title από το δικό σου template
-            match = re.search(r"Track 1:\s*(.*?)\s*Duration:", p.text)
-            template_title = match.group(1) if match else None
+            title = _clean_text(track.get("title"))
+            duration_str = format_duration_docx(_duration_ms(track))
             
-            # Αντικατάσταση Track 1
-            _replace_first_across_runs(p, "Track 1", f"Track {display_number}", required=False)
+            # Αποθήκευση του original style
+            rPr = deepcopy(p.runs[0]._r.rPr) if p.runs and p.runs[0]._r.rPr is not None else None
+            p.clear()
             
-            # Αντικατάσταση Τίτλου
-            new_title = _clean_text(track.get("title"))
-            if template_title:
-                _replace_first_across_runs(p, template_title, new_title, required=False)
-                
-                # Δυναμική προσαρμογή κενών για να μη σπάει η γραμμή ποτέ!
-                space_match = re.search(r"(\s{5,})Duration:", p.text)
-                if space_match:
-                    orig_spaces = space_match.group(1)
-                    len_diff = len(new_title) - len(template_title)
-                    new_space_count = max(2, len(orig_spaces) - len_diff)
-                    _replace_first_across_runs(p, orig_spaces, " " * new_space_count, required=False)
+            left_text = f"Track {display_number}: {title}"
+            right_text = f"Duration: {duration_str}"
             
-            # Αντικατάσταση Duration
-            dur_match = re.search(r"Duration:\s*(\d{2}:\d{2}:\d{2}|\d{2}:\d{2})", p.text)
-            if dur_match:
-                _replace_first_across_runs(p, dur_match.group(1), format_duration_docx(_duration_ms(track)), required=False)
+            # Δυναμικός υπολογισμός κενών με βάση το μέγεθος (περίπου 75 χαρακτήρες η γραμμή)
+            spaces_count = max(2, 75 - len(left_text) - len(right_text))
             
+            # Γράφουμε όλη τη γραμμή ως ένα ΕΝΙΑΙΟ text run
+            full_line = f"{left_text}{' ' * spaces_count}{right_text}"
+            run = p.add_run(full_line)
+            
+            # Εφαρμόζουμε το original style
+            if rPr is not None:
+                run._r.append(deepcopy(rPr))
             break
             
     _set_dynamic_label_value(paragraphs, "Primary Artist(s):", ", ".join(_unique_texts(track.get("primary_artists", []))))
