@@ -180,43 +180,30 @@ def _set_label_value(paragraph: Paragraph, label: str, value: Any) -> None:
     _replace_range_across_runs(paragraph, label_end, len(full_text), replacement)
 
 def _set_dynamic_label_value(paragraphs: list[Paragraph], label: str, value: Any) -> None:
-    """Smart lookup supporting nested table cells to avoid newlines."""
+    """Smart lookup supporting both inline text and adjacent table cells."""
     clean_val = str(value or "").strip()
     for i, p in enumerate(paragraphs):
         if label in p.text:
+            # Αν η ετικέτα είναι στην ίδια γραμμή με την τιμή
             if len(p.text.strip()) > len(label.strip()) + 1 and not p.text.strip().endswith(":"):
                 _set_label_value(p, label, clean_val)
             else:
-                tc = p._element.getparent()
-                while tc is not None and tc.tag != qn('w:tc'):
-                    tc = tc.getparent()
-                    
-                if tc is not None and tc.tag == qn('w:tc'):
-                    tr = tc.getparent()
-                    if tr is not None and tr.tag == qn('w:tr'):
-                        tc_elements = list(tr.findall(qn('w:tc')))
-                        try:
-                            tc_index = tc_elements.index(tc)
-                            if tc_index + 1 < len(tc_elements):
-                                next_tc = tc_elements[tc_index + 1]
-                                next_tc_ps = list(next_tc.iter(qn('w:p')))
-                                if next_tc_ps:
-                                    # Write cleanly into the FIRST line of the right cell
-                                    next_p = Paragraph(next_tc_ps[0], p._parent)
-                                    _replace_range_across_runs(next_p, 0, len(next_p.text), clean_val)
-                                    
-                                    # Clear all remaining lines/returns in that cell
-                                    for extra_p_node in next_tc_ps[1:]:
-                                        extra_p = Paragraph(extra_p_node, p._parent)
-                                        _replace_range_across_runs(extra_p, 0, len(extra_p.text), "")
-                                    return
-                        except ValueError:
-                            pass
-                
-                # Fallback if not inside a table (just use next paragraph)
+                # Η τιμή μπαίνει στην αμέσως επόμενη παράγραφο (που είναι το διπλανό κελί του πίνακα)
                 if i + 1 < len(paragraphs):
                     next_p = paragraphs[i+1]
                     _replace_range_across_runs(next_p, 0, len(next_p.text), clean_val)
+                    
+                    # Καθαρισμός υπολειμμάτων: Αν το template είχε το σύμβολο % σε ξεχωριστή παράγραφο 
+                    # μέσα στο ΙΔΙΟ κελί, τη σβήνουμε για να μην τυπωθεί διπλή φορά.
+                    cell_node = next_p._element.getparent()
+                    if cell_node.tag == qn('w:tc'):
+                        offset = 2
+                        while i + offset < len(paragraphs):
+                            if paragraphs[i + offset]._element.getparent() == cell_node:
+                                _replace_range_across_runs(paragraphs[i + offset], 0, len(paragraphs[i + offset].text), "")
+                                offset += 1
+                            else:
+                                break
             return
 
 def _format_performers_with_percentages(names: list[str], total_performers: int) -> str:
@@ -246,6 +233,7 @@ def _clone_track_blocks(document: _DocumentType, track_count: int) -> list[list[
     start_elem = None
     end_elem = None
     
+    # 1. Dynamically locate Track boundaries across paragraphs & tables
     for elem in body:
         text = "".join(node.text for node in elem.iter(qn('w:t')) if node.text)
         if "Track 1" in text and start_elem is None:
@@ -267,6 +255,7 @@ def _clone_track_blocks(document: _DocumentType, track_count: int) -> list[list[
         if elem is end_elem:
             break
             
+    # 2. Clone the detected elements
     insertion_index = body.index(original_nodes[0])
     blocks = []
     
@@ -395,15 +384,18 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
             title = _clean_text(track.get("title"))
             duration_str = format_duration_docx(_duration_ms(track))
             
-            # Δημιουργούμε νέα παράγραφο από το μηδέν διατηρώντας το αρχικό style, με 3 TABS πριν το Duration
+            # Αντιγράφουμε το αρχικό style της παραγράφου για να μη χαθούν γραμματοσειρές/μεγέθη
             rPr = deepcopy(p.runs[0]._r.rPr) if p.runs and p.runs[0]._r.rPr is not None else None
             p.clear()
             
-            run1 = p.add_run(f"Track {display_number}: {title}")
-            if rPr is not None: run1._r.append(deepcopy(rPr))
+            # Φτιάχνουμε το ενιαίο κείμενο με 2 Tabs για διακριτική απόσταση και επιβάλλουμε BOLD 
+            full_text = f"Track {display_number}: {title}\t\tDuration: {duration_str}"
+            run = p.add_run(full_text)
+            if rPr is not None:
+                run._r.append(deepcopy(rPr))
             
-            run2 = p.add_run(f"\t\t\tDuration: {duration_str}")
-            if rPr is not None: run2._r.append(deepcopy(rPr))
+            # Εξαναγκασμός του Word να κάνει ολόκληρη τη γραμμή Bold
+            run.bold = True
             break
             
     _set_dynamic_label_value(paragraphs, "Primary Artist(s):", ", ".join(_unique_texts(track.get("primary_artists", []))))
@@ -422,6 +414,7 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
     vocalists = fixed_credits.get("Vocalist(s)", [])
     rappers = fixed_credits.get("Rapper(s)", [])
     
+    # Υπολογισμός συνολικού πλήθους performes (και vocalists και rappers μαζί)
     total_performers = len(vocalists) + len(rappers)
     
     _set_dynamic_label_value(paragraphs, "Vocalist(s):", _format_performers_with_percentages(vocalists, total_performers))
