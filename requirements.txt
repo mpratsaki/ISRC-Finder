@@ -6,4 +6,3 @@ musicbrainzngs
 pandas
 python-docx
 reportlab
-libchromaprint-tools
