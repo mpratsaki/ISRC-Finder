@@ -180,38 +180,63 @@ def _set_label_value(paragraph: Paragraph, label: str, value: Any) -> None:
     _replace_range_across_runs(paragraph, label_end, len(full_text), replacement)
 
 def _set_dynamic_label_value(paragraphs: list[Paragraph], label: str, value: Any) -> None:
-    """Smart lookup supporting both inline text and adjacent table cells."""
-    clean_val = str(value or "").strip()
+    """Smart lookup supporting proper line breaks inside DOCX table cells."""
+    raw_val = str(value or "").strip()
     for i, p in enumerate(paragraphs):
         if label in p.text:
-            # Αν η ετικέτα είναι στην ίδια γραμμή με την τιμή
+            # Inline value (e.g. "Label: Value")
             if len(p.text.strip()) > len(label.strip()) + 1 and not p.text.strip().endswith(":"):
-                _set_label_value(p, label, clean_val)
+                _set_label_value(p, label, raw_val)
             else:
-                # Η τιμή μπαίνει στην αμέσως επόμενη παράγραφο (που είναι το διπλανό κελί του πίνακα)
-                if i + 1 < len(paragraphs):
-                    next_p = paragraphs[i+1]
-                    _replace_range_across_runs(next_p, 0, len(next_p.text), clean_val)
+                # Value in adjacent cell or next paragraph
+                target_p = None
+                tc = p._element.getparent()
+                while tc is not None and tc.tag != qn('w:tc'):
+                    tc = tc.getparent()
                     
-                    # Καθαρισμός υπολειμμάτων: Αν το template είχε το σύμβολο % σε ξεχωριστή παράγραφο 
-                    # μέσα στο ΙΔΙΟ κελί, τη σβήνουμε για να μην τυπωθεί διπλή φορά.
-                    cell_node = next_p._element.getparent()
-                    if cell_node.tag == qn('w:tc'):
-                        offset = 2
-                        while i + offset < len(paragraphs):
-                            if paragraphs[i + offset]._element.getparent() == cell_node:
-                                _replace_range_across_runs(paragraphs[i + offset], 0, len(paragraphs[i + offset].text), "")
-                                offset += 1
-                            else:
-                                break
+                if tc is not None and tc.tag == qn('w:tc'):
+                    tr = tc.getparent()
+                    if tr is not None and tr.tag == qn('w:tr'):
+                        tc_elements = list(tr.findall(qn('w:tc')))
+                        try:
+                            tc_index = tc_elements.index(tc)
+                            if tc_index + 1 < len(tc_elements):
+                                next_tc = tc_elements[tc_index + 1]
+                                next_tc_ps = list(next_tc.iter(qn('w:p')))
+                                if next_tc_ps:
+                                    target_p = Paragraph(next_tc_ps[0], p._parent)
+                                    # Clear all remaining lines/returns in that cell
+                                    for extra_p_node in next_tc_ps[1:]:
+                                        extra_p = Paragraph(extra_p_node, p._parent)
+                                        extra_p.clear()
+                        except ValueError:
+                            pass
+                
+                # Fallback if not inside a table
+                if target_p is None and i + 1 < len(paragraphs):
+                    target_p = paragraphs[i+1]
+                    
+                if target_p is not None:
+                    rPr = deepcopy(target_p.runs[0]._r.rPr) if target_p.runs and target_p.runs[0]._r.rPr is not None else None
+                    target_p.clear()
+                    
+                    # Force DOCX line breaks (add_break) for each \n
+                    lines = raw_val.split('\n')
+                    for idx, line in enumerate(lines):
+                        run = target_p.add_run(line)
+                        if rPr is not None:
+                            run._r.append(deepcopy(rPr))
+                        if idx < len(lines) - 1:
+                            run.add_break()
             return
 
 def _format_performers_with_percentages(names: list[str], total_performers: int) -> str:
-    """Splits 100% ownership among multiple performers via DOCX line breaks."""
+    """Splits 100% ownership among multiple performers via newlines."""
     if not names or total_performers == 0:
         return ""
     percentage = 100.0 / total_performers
     pct_str = f"{int(percentage)}%" if percentage.is_integer() else f"{percentage:.2f}%"
+    # Returns \n so _set_dynamic_label_value can convert it to true DOCX breaks
     return "\n".join(f"{name}\t\t{pct_str}" for name in names)
 
 def _format_rights_value(line: Any, fallback_owner: str = "") -> str:
@@ -233,7 +258,6 @@ def _clone_track_blocks(document: _DocumentType, track_count: int) -> list[list[
     start_elem = None
     end_elem = None
     
-    # 1. Dynamically locate Track boundaries across paragraphs & tables
     for elem in body:
         text = "".join(node.text for node in elem.iter(qn('w:t')) if node.text)
         if "Track 1" in text and start_elem is None:
@@ -255,7 +279,6 @@ def _clone_track_blocks(document: _DocumentType, track_count: int) -> list[list[
         if elem is end_elem:
             break
             
-    # 2. Clone the detected elements
     insertion_index = body.index(original_nodes[0])
     blocks = []
     
@@ -388,13 +411,17 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
             rPr = deepcopy(p.runs[0]._r.rPr) if p.runs and p.runs[0]._r.rPr is not None else None
             p.clear()
             
-            # Φτιάχνουμε το ενιαίο κείμενο με 2 Tabs για διακριτική απόσταση και επιβάλλουμε BOLD 
-            full_text = f"Track {display_number}: {title}\t\tDuration: {duration_str}"
-            run = p.add_run(full_text)
+            left_text = f"Track {display_number}: {title}"
+            right_text = f"Duration: {duration_str}"
+            
+            # Δυναμικός υπολογισμός κενών για στοίχιση δεξιά. 
+            # (Μια γραμμή Α4 χωράει περίπου 75 χαρακτήρες σε 10pt font)
+            spaces = max(5, 75 - len(left_text) - len(right_text))
+            
+            run = p.add_run(f"{left_text}{' ' * spaces}{right_text}")
             if rPr is not None:
                 run._r.append(deepcopy(rPr))
             
-            # Εξαναγκασμός του Word να κάνει ολόκληρη τη γραμμή Bold
             run.bold = True
             break
             
@@ -414,7 +441,6 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
     vocalists = fixed_credits.get("Vocalist(s)", [])
     rappers = fixed_credits.get("Rapper(s)", [])
     
-    # Υπολογισμός συνολικού πλήθους performes (και vocalists και rappers μαζί)
     total_performers = len(vocalists) + len(rappers)
     
     _set_dynamic_label_value(paragraphs, "Vocalist(s):", _format_performers_with_percentages(vocalists, total_performers))
