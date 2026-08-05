@@ -220,7 +220,7 @@ elif "code" in query_params and "token_data" not in st.session_state:
         token_data = exchange_code_for_token(client_id, client_secret, redirect_uri, query_params["code"])
         st.session_state["token_data"] = token_data
         st.toast("Επιτυχής σύνδεση στο Spotify!", icon="✅")
-    except requests.HTTPError as e:
+    except requests.exceptions.RequestException as e:
         st.error(f"Σφάλμα κατά την ανταλλαγή του code: {e}")
     st.query_params.clear()
     st.rerun()
