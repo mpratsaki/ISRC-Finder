@@ -48,7 +48,6 @@ def page_acrcloud_scanner(token=None):
     st.write("Ανέβασε ένα DJ Mix ή μεγάλο αρχείο ήχου και άσε το εργαλείο να βρει όλα τα κομμάτια, ISRCs και UPCs.")
 
     # --- ΑΟΡΑΤΗ ΑΝΑΓΝΩΣΗ CREDENTIALS ---
-    # Ο χρήστης δεν βλέπει τίποτα απολύτως στην οθόνη.
     try:
         host_input = st.secrets["ACRCLOUD_HOST"]
         key_input = st.secrets["ACRCLOUD_KEY"]
@@ -65,7 +64,6 @@ def page_acrcloud_scanner(token=None):
         if st.button("🚀 Έναρξη Σάρωσης", type="primary"):
             
             with st.spinner("Φόρτωση ολόκληρου του κομματιού στη μνήμη..."):
-                # 🛠️ FIX για το FileNotFoundError: Δημιουργία προσωρινού αρχείου στο δίσκο
                 file_extension = uploaded_file.name.split('.')[-1]
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_audio:
@@ -73,17 +71,14 @@ def page_acrcloud_scanner(token=None):
                     temp_file_path = temp_audio.name
                 
                 try:
-                    # Το pydub τώρα διαβάζει ένα "φυσικό" αρχείο από το δίσκο
                     full_audio = AudioSegment.from_file(temp_file_path)
                     duration_ms = len(full_audio)
                 except Exception as e:
                     st.error(f"⚠️ Αποτυχία φόρτωσης του αρχείου ήχου. Σφάλμα: {e}")
-                    # Καθαρίζουμε το προσωρινό αρχείο σε περίπτωση σφάλματος
                     if os.path.exists(temp_file_path):
                         os.remove(temp_file_path)
                     return
                 
-                # Αφού φορτώθηκε επιτυχώς, διαγράφουμε το προσωρινό αρχείο
                 if os.path.exists(temp_file_path):
                     os.remove(temp_file_path)
             
@@ -128,17 +123,31 @@ def page_acrcloud_scanner(token=None):
             if all_unique_results:
                 table_data = []
                 for track_info in all_unique_results.values():
+                    # Ανάκτηση του Spotify ID
+                    spotify_id = track_info.get('external_metadata', {}).get('spotify', {}).get('track', {}).get('id', '')
+                    
+                    # Δημιουργία του πλήρους Link αν υπάρχει το ID, αλλιώς κενό
+                    spotify_link = f"https://open.spotify.com/track/{spotify_id}" if spotify_id else "Δεν βρέθηκε"
+
                     table_data.append({
                         "Artist": track_info.get('artists', [{'name': 'Άγνωστος'}])[0]['name'],
                         "Title": track_info.get('title', 'Άγνωστος Τίτλος'),
                         "Label": track_info.get('label', 'Άγνωστο Label'),
                         "ISRC": track_info.get('external_ids', {}).get('isrc', 'Δεν βρέθηκε'),
                         "UPC": track_info.get('external_ids', {}).get('upc', 'Δεν βρέθηκε'),
-                        "Spotify ID": track_info.get('external_metadata', {}).get('spotify', {}).get('track', {}).get('id', 'Δεν βρέθηκε')
+                        "Spotify Link": spotify_link  # Εδώ μπαίνει το νέο link
                     })
                 
                 df = pd.DataFrame(table_data)
-                st.dataframe(df, use_container_width=True)
+                
+                # Εμφάνιση του DataFrame με το LinkColumn του Streamlit για να είναι clickable!
+                st.dataframe(
+                    df, 
+                    use_container_width=True,
+                    column_config={
+                        "Spotify Link": st.column_config.LinkColumn("Spotify Link", display_text="Άνοιγμα 🟢")
+                    }
+                )
                 
                 csv_buffer = df.to_csv(index=False, encoding="utf-8-sig")
                 st.download_button(
