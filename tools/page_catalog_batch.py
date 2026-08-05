@@ -195,6 +195,27 @@ def _fetch_artist_releases(
     while url:
         page, note = _spotify_get_json(token, url, params)
         if note and note not in notes:
+            # --- TEMP DIAGNOSTIC --------------------------------------
+            # `_spotify_get_json` deliberately swallows the response body
+            # and only returns a generic "Spotify HTTP <code>." note. Fire
+            # one raw, uncached request here so we can see Spotify's real
+            # `error.message` and find the actual root cause. Remove this
+            # block once we've confirmed the fix.
+            try:
+                import requests as _debug_requests
+                debug_resp = _debug_requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    params=dict(params or {}),
+                    timeout=(5, 15),
+                )
+                notes.append(
+                    f"[debug] HTTP {debug_resp.status_code} for {debug_resp.url} "
+                    f"-> {debug_resp.text[:400]}"
+                )
+            except Exception as debug_exc:
+                notes.append(f"[debug] raw request failed: {debug_exc}")
+            # --- END TEMP DIAGNOSTIC -----------------------------------
             notes.append(note)
         if not page:
             break
