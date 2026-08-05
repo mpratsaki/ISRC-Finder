@@ -5,6 +5,8 @@ import hmac
 import time
 import requests
 import io
+import os
+import tempfile
 import pandas as pd
 from pydub import AudioSegment
 
@@ -45,21 +47,15 @@ def page_acrcloud_scanner(token=None):
     st.title("🎵 ACRCloud Auto Scanner")
     st.write("Ανέβασε ένα DJ Mix ή μεγάλο αρχείο ήχου και άσε το εργαλείο να βρει όλα τα κομμάτια, ISRCs και UPCs.")
 
-    # --- ΑΥΤΟΜΑΤΗ ΑΝΑΓΝΩΣΗ ΑΠΟ ΤΑ STREAMLIT SECRETS ---
-    # Χρησιμοποιούμε το .get() για να μην κρασάρει αν κάποιο κλειδί λείπει ή έχει γραφτεί λάθος
-    default_host = st.secrets.get("ACRCLOUD_HOST", "identify-eu-west-1.acrcloud.com")
-    default_key = st.secrets.get("ACRCLOUD_KEY", "")
-    default_secret = st.secrets.get("ACRCLOUD_SECRET", "")
-
-    # Το κάναμε expanded=False για να μην πιάνει χώρο στην οθόνη, αφού τα κλειδιά μπαίνουν αυτόματα!
-    with st.expander("⚙️ API Credentials (Φορτώθηκαν αυτόματα)", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            host_input = st.text_input("Host", value=default_host)
-        with col2:
-            key_input = st.text_input("Access Key", type="password", value=default_key)
-        with col3:
-            secret_input = st.text_input("Access Secret", type="password", value=default_secret)
+    # --- ΑΟΡΑΤΗ ΑΝΑΓΝΩΣΗ CREDENTIALS ---
+    # Ο χρήστης δεν βλέπει τίποτα απολύτως στην οθόνη.
+    try:
+        host_input = st.secrets["ACRCLOUD_HOST"]
+        key_input = st.secrets["ACRCLOUD_KEY"]
+        secret_input = st.secrets["ACRCLOUD_SECRET"]
+    except KeyError as e:
+        st.error(f"⚠️ Σφάλμα: Λείπει το κλειδί {e} από τα Streamlit Secrets! Μόνο ο διαχειριστής μπορεί να το διορθώσει.")
+        return
 
     st.markdown("---")
 
@@ -68,13 +64,28 @@ def page_acrcloud_scanner(token=None):
     if uploaded_file is not None:
         if st.button("🚀 Έναρξη Σάρωσης", type="primary"):
             
-            if not key_input or not secret_input:
-                st.error("⚠️ Παρακαλώ συμπλήρωσε το Access Key και το Access Secret (ή έλεγξε τα Streamlit Secrets σου)!")
-                return
-            
             with st.spinner("Φόρτωση ολόκληρου του κομματιού στη μνήμη..."):
-                full_audio = AudioSegment.from_file(uploaded_file)
-                duration_ms = len(full_audio)
+                # 🛠️ FIX για το FileNotFoundError: Δημιουργία προσωρινού αρχείου στο δίσκο
+                file_extension = uploaded_file.name.split('.')[-1]
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_audio:
+                    temp_audio.write(uploaded_file.getvalue())
+                    temp_file_path = temp_audio.name
+                
+                try:
+                    # Το pydub τώρα διαβάζει ένα "φυσικό" αρχείο από το δίσκο
+                    full_audio = AudioSegment.from_file(temp_file_path)
+                    duration_ms = len(full_audio)
+                except Exception as e:
+                    st.error(f"⚠️ Αποτυχία φόρτωσης του αρχείου ήχου. Σφάλμα: {e}")
+                    # Καθαρίζουμε το προσωρινό αρχείο σε περίπτωση σφάλματος
+                    if os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+                    return
+                
+                # Αφού φορτώθηκε επιτυχώς, διαγράφουμε το προσωρινό αρχείο
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
             
             step_ms = 20000 
             valid_timestamps = list(range(0, duration_ms - 15000, step_ms))
