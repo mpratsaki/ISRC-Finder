@@ -187,35 +187,19 @@ def _fetch_artist_releases(
     raw_items: list[dict[str, Any]] = []
 
     url = f"{SPOTIFY_API_BASE}/artists/{artist_id}/albums"
+    # NOTE: as of the post-Feb-2026 Spotify API changes referenced elsewhere
+    # in this app (see app.py docstring), this endpoint now rejects
+    # limit=50 with a "400 Invalid limit" response. 20 is Spotify's own
+    # documented default for this endpoint and is confirmed safe -- we just
+    # let pagination (via the "next" link, below) do the rest of the work.
     params: Mapping[str, Any] | None = {
         "include_groups": RELEASE_GROUPS,
-        "limit": 50,
+        "limit": 20,
         "offset": 0,
     }
     while url:
         page, note = _spotify_get_json(token, url, params)
         if note and note not in notes:
-            # --- TEMP DIAGNOSTIC --------------------------------------
-            # `_spotify_get_json` deliberately swallows the response body
-            # and only returns a generic "Spotify HTTP <code>." note. Fire
-            # one raw, uncached request here so we can see Spotify's real
-            # `error.message` and find the actual root cause. Remove this
-            # block once we've confirmed the fix.
-            try:
-                import requests as _debug_requests
-                debug_resp = _debug_requests.get(
-                    url,
-                    headers={"Authorization": f"Bearer {token}"},
-                    params=dict(params or {}),
-                    timeout=(5, 15),
-                )
-                notes.append(
-                    f"[debug] HTTP {debug_resp.status_code} for {debug_resp.url} "
-                    f"-> {debug_resp.text[:400]}"
-                )
-            except Exception as debug_exc:
-                notes.append(f"[debug] raw request failed: {debug_exc}")
-            # --- END TEMP DIAGNOSTIC -----------------------------------
             notes.append(note)
         if not page:
             break
