@@ -19,7 +19,8 @@ from typing import Any
 from docx import Document
 from docx.document import Document as _DocumentType
 from docx.enum.text import WD_TAB_ALIGNMENT
-from docx.oxml.ns import qn
+from docx.oxml import parse_xml
+from docx.oxml.ns import qn, nsdecls
 from docx.shared import Twips
 from docx.text.paragraph import Paragraph
 
@@ -283,10 +284,23 @@ def _clone_track_blocks(document: _DocumentType, track_count: int) -> list[list[
         if elem is end_elem:
             break
             
+    # Each track lives in its own standalone <w:tbl>, so consecutive tracks
+    # sit flush against one another with nothing between them (Word doesn't
+    # add any gap between adjacent tables on its own). The template already
+    # defines exactly this kind of spacer - a small empty paragraph with
+    # `w:spacing w:after="120"` - immediately above the very first track
+    # block, to separate it from the "TRACKLIST DETAILS" header. We reuse
+    # that same paragraph as a template and clone it between every pair of
+    # generated track blocks, so the last row of one track ("PERFORMED BY" /
+    # Rapper(s)) never touches the next track's title row.
+    spacer_template = original_nodes[0].getprevious()
+    if spacer_template is None or spacer_template.tag != qn('w:p'):
+        spacer_template = None
+
     insertion_index = body.index(original_nodes[0])
     blocks = []
     
-    for _ in range(track_count):
+    for track_index in range(track_count):
         block_nodes = []
         for original_node in original_nodes:
             clone = deepcopy(original_node)
@@ -295,6 +309,19 @@ def _clone_track_blocks(document: _DocumentType, track_count: int) -> list[list[
             insertion_index += 1
             block_nodes.append(clone)
         blocks.append(block_nodes)
+
+        if track_index < track_count - 1:
+            if spacer_template is not None:
+                spacer_clone = deepcopy(spacer_template)
+            else:
+                spacer_clone = parse_xml(
+                    f'<w:p {nsdecls("w")}><w:pPr>'
+                    f'<w:spacing w:after="120" w:lineRule="auto"/>'
+                    f'</w:pPr></w:p>'
+                )
+            _remove_clone_identity_attributes(spacer_clone)
+            body.insert(insertion_index, spacer_clone)
+            insertion_index += 1
         
     for original_node in original_nodes:
         body.remove(original_node)
