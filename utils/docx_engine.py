@@ -18,8 +18,15 @@ from typing import Any
 
 from docx import Document
 from docx.document import Document as _DocumentType
+from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml.ns import qn
+from docx.shared import Twips
 from docx.text.paragraph import Paragraph
+
+# Word's own default table-cell inset (left/right) when a cell defines no
+# explicit <w:tcMar>. Used only as a last-resort fallback when we have to
+# compute a tab-stop position ourselves (see _ensure_right_tab_stop).
+_DEFAULT_CELL_MARGIN_TWIPS = 108
 
 class DocxTemplateError(ValueError):
     """Raised when the private template no longer matches the expected layout."""
@@ -394,33 +401,180 @@ def _fill_release_header(paragraphs: list[Paragraph], data: Mapping[str, Any]) -
     _set_dynamic_label_value(paragraphs, "Genre / Subgenre:", f"{data.get('genre')} / {data.get('subgenre')}")
     _set_dynamic_label_value(paragraphs, "Total Duration:", format_duration_docx(_duration_ms(data)))
 
+def _apply_rPr(run, source_rPr) -> None:
+    """Clone `source_rPr`'s formatting onto `run`, preserving valid OOXML ordering.
+
+    `w:rPr` must be the first child of `w:r` per the schema. Using
+    `get_or_add_rPr()` guarantees it is inserted (or already sits) in the
+    correct position; we then swap in the source's formatting children
+    rather than raw-appending a second `w:rPr`, which is what produced the
+    invalid `<w:r><w:t>...</w:t><w:rPr>...</w:rPr></w:r>` ordering before.
+    """
+    if source_rPr is None:
+        return
+    rPr = run._r.get_or_add_rPr()
+    for child in list(rPr):
+        rPr.remove(child)
+    for child in deepcopy(source_rPr):
+        rPr.append(child)
+
+def _append_styled_run(paragraph: Paragraph, text: str, source_rPr) -> None:
+    run = paragraph.add_run(text)
+    _apply_rPr(run, source_rPr)
+
+def _grid_col_widths_twips(tbl_element) -> list[int]:
+    widths = []
+    tblGrid = tbl_element.find(qn('w:tblGrid'))
+    if tblGrid is None:
+        return widths
+    for gridCol in tblGrid.findall(qn('w:gridCol')):
+        try:
+            widths.append(int(float(gridCol.get(qn('w:w'), 0))))
+        except (TypeError, ValueError):
+            widths.append(0)
+    return widths
+
+def _cell_margin_twips(tcPr, tblPr, side: str) -> int:
+    """Resolve a cell's left/right inset: explicit w:tcMar, else the
+    table-wide w:tblCellMar default, else Word's own built-in default."""
+    tag = qn(f'w:{side}')
+    for pr in (tcPr, tblPr):
+        if pr is None:
+            continue
+        mar = pr.find(qn('w:tcMar')) if pr.tag == qn('w:tcPr') else pr.find(qn('w:tblCellMar'))
+        if mar is None:
+            continue
+        node = mar.find(tag)
+        if node is not None and node.get(qn('w:w')) is not None:
+            try:
+                return int(float(node.get(qn('w:w'))))
+            except (TypeError, ValueError):
+                continue
+    return _DEFAULT_CELL_MARGIN_TWIPS
+
+def _measure_cell_inner_width_twips(tc_element) -> int | None:
+    """Best-effort inner (content) width of the table cell containing
+    `tc_element`, in twips: explicit w:tcW if set, otherwise the sum of the
+    w:tblGrid columns the cell spans, minus its left/right margins.
+    Returns None if it can't be determined (caller should fall back)."""
+    tcPr = tc_element.find(qn('w:tcPr'))
+
+    tr = tc_element.getparent()
+    if tr is None or tr.tag != qn('w:tr'):
+        return None
+    tbl = tr.getparent()
+    if tbl is None or tbl.tag != qn('w:tbl'):
+        return None
+    tblPr = tbl.find(qn('w:tblPr'))
+
+    left_margin = _cell_margin_twips(tcPr, tblPr, "left")
+    right_margin = _cell_margin_twips(tcPr, tblPr, "right")
+
+    explicit_width = None
+    if tcPr is not None:
+        tcW = tcPr.find(qn('w:tcW'))
+        if tcW is not None and tcW.get(qn('w:type')) == 'dxa':
+            try:
+                explicit_width = int(float(tcW.get(qn('w:w'), 0)))
+            except (TypeError, ValueError):
+                explicit_width = None
+
+    if explicit_width:
+        return max(explicit_width - left_margin - right_margin, 0)
+
+    # No explicit cell width: derive it from the table's column grid,
+    # matching however many columns this cell spans starting at its
+    # position among its row's cells.
+    grid_widths = _grid_col_widths_twips(tbl)
+    if not grid_widths:
+        return None
+
+    tc_siblings = list(tr.findall(qn('w:tc')))
+    try:
+        tc_index = tc_siblings.index(tc_element)
+    except ValueError:
+        return None
+
+    col_cursor = 0
+    for sibling in tc_siblings[:tc_index]:
+        sibling_pr = sibling.find(qn('w:tcPr'))
+        span_node = sibling_pr.find(qn('w:gridSpan')) if sibling_pr is not None else None
+        span = int(span_node.get(qn('w:val'))) if span_node is not None else 1
+        col_cursor += span
+
+    span_node = tcPr.find(qn('w:gridSpan')) if tcPr is not None else None
+    own_span = int(span_node.get(qn('w:val'))) if span_node is not None else 1
+
+    spanned = grid_widths[col_cursor: col_cursor + own_span]
+    if not spanned:
+        return None
+
+    return max(sum(spanned) - left_margin - right_margin, 0)
+
+def _ensure_right_tab_stop(paragraph: Paragraph) -> None:
+    """Guarantee the paragraph has a right-aligned tab stop at the inner
+    right edge of its containing table cell.
+
+    The Stay Independent template already ships this tab stop on the track
+    title row (so this is normally a no-op), but computing it defensively
+    means the layout keeps working even if the template is edited by hand
+    and the tab stop is dropped.
+    """
+    existing = list(paragraph.paragraph_format.tab_stops)
+    if any(stop.alignment == WD_TAB_ALIGNMENT.RIGHT for stop in existing):
+        return
+
+    width_twips = _measure_cell_inner_width_twips(paragraph._p.getparent())
+    if width_twips is None or width_twips <= 0:
+        return
+
+    paragraph.paragraph_format.tab_stops.add_tab_stop(
+        Twips(width_twips), WD_TAB_ALIGNMENT.RIGHT
+    )
+
 def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_number: int) -> None:
     paragraphs = []
     for node in block_nodes:
         paragraphs.extend(Paragraph(p, None) for p in node.xpath('.//w:p'))
-        
+
     for p in paragraphs:
         if "Track 1" in p.text and "Duration:" in p.text:
             title = _clean_text(track.get("title"))
             duration_str = format_duration_docx(_duration_ms(track))
-            
-            # Αποθήκευση του original style
-            rPr = deepcopy(p.runs[0]._r.rPr) if p.runs and p.runs[0]._r.rPr is not None else None
-            p.clear()
-            
+
+            # Capture the ORIGINAL per-segment styling before clearing.
+            # The template uses two distinct runs here - a larger bold run
+            # for "Track N: Title" and a smaller bold run for
+            # "Duration: MM:SS" - so we preserve each independently instead
+            # of stamping the title's style over both.
+            runs = p.runs
+            left_rPr = deepcopy(runs[0]._r.rPr) if runs and runs[0]._r.rPr is not None else None
+            right_rPr = (
+                deepcopy(runs[1]._r.rPr)
+                if len(runs) > 1 and runs[1]._r.rPr is not None
+                else deepcopy(left_rPr)
+            )
+
             left_text = f"Track {display_number}: {title}"
             right_text = f"Duration: {duration_str}"
-            
-            # Δυναμικός υπολογισμός κενών με βάση το μέγεθος (περίπου 75 χαρακτήρες η γραμμή)
-            spaces_count = max(2, 75 - len(left_text) - len(right_text))
-            
-            # Γράφουμε όλη τη γραμμή ως ένα ΕΝΙΑΙΟ text run
-            full_line = f"{left_text}{' ' * spaces_count}{right_text}"
-            run = p.add_run(full_line)
-            
-            # Εφαρμόζουμε το original style
-            if rPr is not None:
-                run._r.append(deepcopy(rPr))
+
+            # `paragraph.clear()` removes only the run content; it preserves
+            # paragraph-level formatting (w:pPr), which is exactly where the
+            # template already defines a right-aligned tab stop positioned
+            # at the track row's inner right edge. So a single "\t" between
+            # the two segments is all that's needed to right-align the
+            # duration - no manual space padding, no risk of overflow-driven
+            # line wraps regardless of how long the title is.
+            p.clear()
+
+            _append_styled_run(p, left_text, left_rPr)
+            _append_styled_run(p, "\t", right_rPr)
+            _append_styled_run(p, right_text, right_rPr)
+
+            # Defensive fallback in case this particular paragraph has no
+            # right tab stop (e.g. a hand-edited template) - never silently
+            # fall back to unaligned/wrapping text.
+            _ensure_right_tab_stop(p)
             break
             
     _set_dynamic_label_value(paragraphs, "Primary Artist(s):", ", ".join(_unique_texts(track.get("primary_artists", []))))
