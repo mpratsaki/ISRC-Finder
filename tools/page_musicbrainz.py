@@ -37,6 +37,9 @@ from utils.tidal_api import validate_isrc
 
 SEARCH_RESULT_LIMIT = 10
 
+# Initialize Auth silently if credentials exist
+if not is_mb_authenticated():
+    init_mb_auth()
 
 
 # --------------------------------------------------------------------------
