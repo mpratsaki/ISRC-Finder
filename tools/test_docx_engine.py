@@ -195,7 +195,8 @@ def test_three_track_template_round_trip() -> None:
     assert "00:00:00" not in all_text
     assert "Three Track Release" in all_text
     assert "Total Duration: 00:10:00" in all_text
-    assert "Guirtarist(s): Guitar Player" in all_text
+    assert "Guirtarist(s):" not in all_text
+    assert "Musician(s): Guitar Player (Guitars)" in all_text
     assert "Arranged by: Arranger Name" in all_text
     assert "(P) 2026 Test Imprint" in all_text
     assert "(C) 2026 Stay Independent" in all_text
