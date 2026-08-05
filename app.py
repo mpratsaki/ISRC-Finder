@@ -46,8 +46,6 @@ from tools.page_musicbrainz_search import page_musicbrainz_search
 from tools.page_musicbrainz_work import page_musicbrainz_work
 from tools.page_settings import page_settings
 from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
-from tools.page_audio_id import page_audio_id
-from tools.page_catalog_batch import page_catalog_batch
 from tools.page_acrcloud_scanner import page_acrcloud_scanner
 
 st.set_page_config(
@@ -178,7 +176,6 @@ def render_sidebar(spotify_user):
     st.sidebar.markdown("### Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("Label Copy", "Label Copy")
-    _nav_button("Batch Catalog Label Copy", "Batch Catalog Label Copy")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("ACRCloud Scanner", "ACRCloud Scanner")
     _nav_button("Metadata Health", "Metadata Health")
@@ -187,7 +184,6 @@ def render_sidebar(spotify_user):
     _nav_button("MusicBrainz Album Editions", "MusicBrainz Release Group")
     _nav_button("MusicBrainz Work Explorer", "MusicBrainz Work Explorer")
     _nav_button("MusicBrainz Explorer (Beta)", "MusicBrainz Explorer")
-    _nav_button("AcoustID Audio Scanner", "AcoustID Scanner")
 
     # --- Spacer to push the System block lower ---
     st.sidebar.markdown("<div style='height: 2.5rem'></div>", unsafe_allow_html=True)
@@ -250,8 +246,6 @@ if current_page == "Γεννήτρια Catalog":
     page_catalog_generator(token, spotify_user)
 elif current_page == "Label Copy":
     page_label_copy(token, spotify_user)
-elif current_page == "Batch Catalog Label Copy":    
-    page_catalog_batch(token, spotify_user)
 elif current_page == "ISRC Finder":
     page_isrc_finder(token)
 elif current_page == "ACRCloud Scanner":             
@@ -268,8 +262,6 @@ elif current_page == "MusicBrainz Work Explorer":
     page_musicbrainz_work()
 elif current_page == "MusicBrainz Explorer":
     page_musicbrainz()
-elif current_page == "AcoustID Scanner":
-    page_audio_id()
 elif current_page == "Ιστορικό & Αρχεία":
     page_history(token, spotify_user)
 elif current_page == "Ρυθμίσεις":
