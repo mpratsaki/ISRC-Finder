@@ -41,8 +41,19 @@ DOCX_FIXED_LABEL_ORDER = (
     "Mastering Engineer(s)",
     "Vocalist(s)",
     "Rapper(s)",
-    "Guitarist(s)",
 )
+
+# Canonical role IDs (from utils/label_copy_engine.ROLE_DEFINITIONS) that are
+# instrumentalist credits rather than lead performers: they're listed after
+# vocalists/rappers, as "Name (Instrument)", with no percentage split. Add
+# new instrument role IDs here if label_copy_engine grows more of them.
+INSTRUMENTALIST_ROLE_IDS = ("guitarist", "bassist", "drummer", "keyboardist")
+
+# The private template historically had a single row reserved for guitar
+# credits only, carrying a known typo ("Guirtarist(s):" - see
+# label_copy_engine.py). We now reuse that same row (whichever spelling the
+# template actually has) to list ALL instrumentalists, not just guitarists.
+INSTRUMENTALIST_ROW_LABELS = ("Guitarist(s):", "Guirtarist(s):")
 
 def _clean_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip())
@@ -387,13 +398,22 @@ def _canonical_credits_for_render(track: Mapping[str, Any]) -> tuple[dict[str, l
             ordered[role_id] = names
     return dict(ordered), labels
 
-def _docx_credit_values(track: Mapping[str, Any]) -> tuple[dict[str, list[str]], list[str]]:
+def _docx_credit_values(track: Mapping[str, Any]) -> tuple[dict[str, list[str]], list[str], list[str]]:
     from utils.label_copy_engine import ROLE_DEFINITIONS
     credits, labels = _canonical_credits_for_render(track)
     fixed: dict[str, list[str]] = {label: [] for label in DOCX_FIXED_LABEL_ORDER}
     other_lines: list[str] = []
+    instrumentalist_lines: list[str] = []
 
     for role_id, names in credits.items():
+        if role_id in INSTRUMENTALIST_ROLE_IDS:
+            definition = ROLE_DEFINITIONS.get(role_id)
+            instrument_label = _clean_text(
+                (definition or {}).get("display_label") or role_id.title()
+            )
+            instrumentalist_lines.extend(f"{name} ({instrument_label})" for name in names)
+            continue
+
         definition = ROLE_DEFINITIONS.get(role_id)
         docx_label = definition.get("docx_label") if definition else None
         if docx_label in fixed:
@@ -407,7 +427,7 @@ def _docx_credit_values(track: Mapping[str, Any]) -> tuple[dict[str, list[str]],
         display_label = display_label.rstrip(":")
         other_lines.append(f"{display_label}: {', '.join(names)}")
 
-    return fixed, other_lines
+    return fixed, other_lines, instrumentalist_lines
 
 def _fill_release_header(paragraphs: list[Paragraph], data: Mapping[str, Any]) -> None:
     for p in paragraphs:
