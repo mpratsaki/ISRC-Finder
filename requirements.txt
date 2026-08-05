@@ -8,4 +8,3 @@ python-docx
 reportlab
 starlette<1.4.0
 pydub
-pyaudioop
