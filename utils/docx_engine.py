@@ -461,14 +461,14 @@ def _docx_credit_values(track: Mapping[str, Any]) -> tuple[dict[str, list[str]],
     instrumentalist_lines: list[str] = []
 
     for role_id, names in credits.items():
-        # --- ΝΕΑ ΠΡΟΣΘΗΚΗ: Αγνοούμε πλήρως τον ρόλο του Publisher ---
-        if role_id == "publisher":
+        # --- ΑΓΡΙΑ ΚΟΠΗ: Μπλοκάρουμε οτιδήποτε περιέχει τη λέξη publish ---
+        if "publish" in role_id.lower() or "publish" in str(labels.get(role_id, "")).lower():
             continue
-        # --------------------------------------------------------------
+        # ------------------------------------------------------------------
 
         is_instrument = role_id in INSTRUMENTALIST_ROLE_IDS
         
-        # Πιάνουμε δυναμικά Tidal 'other:' roles που είναι όργανα...
+        # Πιάνουμε δυναμικά Tidal 'other:' roles που είναι όργανα
         if role_id.startswith("other:"):
             role_lower = role_id.lower()
             if any(i in role_lower for i in (
@@ -479,6 +479,19 @@ def _docx_credit_values(track: Mapping[str, Any]) -> tuple[dict[str, list[str]],
                 is_instrument = True
 
         if is_instrument:
+            definition = ROLE_DEFINITIONS.get(role_id)
+            instrument_label = _clean_text(labels.get(role_id))
+            if not instrument_label:
+                instrument_label = _clean_text(
+                    (definition or {}).get("display_label") or role_id.title()
+                )
+            # Αποφυγή άβολων συντακτικών όπως "John Doe (Performed by)"
+            if instrument_label.lower() == "performed by":
+                instrument_label = "Performer"
+                
+            instrumentalist_lines.extend(f"{name} ({instrument_label})" for name in names)
+            continue
+
         definition = ROLE_DEFINITIONS.get(role_id)
         docx_label = definition.get("docx_label") if definition else None
         if docx_label in fixed:
