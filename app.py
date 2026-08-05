@@ -47,8 +47,6 @@ from tools.page_musicbrainz_work import page_musicbrainz_work
 from tools.page_settings import page_settings
 from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
 from tools.page_audio_id import page_audio_id
-from tools.page_catalog_batch import page_catalog_batch
-from tools.page_acrcloud_scanner import page_acrcloud_scanner
 
 st.set_page_config(
     page_title="Stay Independent Tool",
@@ -178,9 +176,7 @@ def render_sidebar(spotify_user):
     st.sidebar.markdown("### Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("Label Copy", "Label Copy")
-    _nav_button("Batch Catalog Label Copy", "Batch Catalog Label Copy")
     _nav_button("ISRC Finder", "ISRC Finder")
-    _nav_button("ACRCloud Scanner", "ACRCloud Scanner")
     _nav_button("Metadata Health", "Metadata Health")
     _nav_button("MusicBrainz Universal Search", "MusicBrainz Search")
     _nav_button("MusicBrainz Label Auditor", "MusicBrainz Label Auditor")
@@ -220,7 +216,7 @@ elif "code" in query_params and "token_data" not in st.session_state:
         token_data = exchange_code_for_token(client_id, client_secret, redirect_uri, query_params["code"])
         st.session_state["token_data"] = token_data
         st.toast("Επιτυχής σύνδεση στο Spotify!", icon="✅")
-    except requests.exceptions.RequestException as e:
+    except requests.HTTPError as e:
         st.error(f"Σφάλμα κατά την ανταλλαγή του code: {e}")
     st.query_params.clear()
     st.rerun()
@@ -250,12 +246,8 @@ if current_page == "Γεννήτρια Catalog":
     page_catalog_generator(token, spotify_user)
 elif current_page == "Label Copy":
     page_label_copy(token, spotify_user)
-elif current_page == "Batch Catalog Label Copy":    
-    page_catalog_batch(token, spotify_user)
 elif current_page == "ISRC Finder":
     page_isrc_finder(token)
-elif current_page == "ACRCloud Scanner":             
-    page_acrcloud_scanner(token)
 elif current_page == "Metadata Health":
     page_metadata_health()
 elif current_page == "MusicBrainz Search":
