@@ -47,7 +47,14 @@ DOCX_FIXED_LABEL_ORDER = (
 # instrumentalist credits rather than lead performers: they're listed after
 # vocalists/rappers, as "Name (Instrument)", with no percentage split. Add
 # new instrument role IDs here if label_copy_engine grows more of them.
-INSTRUMENTALIST_ROLE_IDS = ("guitarist", "bassist", "drummer", "keyboardist")
+INSTRUMENTALIST_ROLE_IDS = (
+    "guitarist", 
+    "bassist", 
+    "drummer", 
+    "keyboardist", 
+    "programmer", 
+    "performer"
+)
 
 # The private template historically had a single row reserved for guitar
 # credits only, carrying a known typo ("Guirtarist(s):" - see
@@ -406,11 +413,29 @@ def _docx_credit_values(track: Mapping[str, Any]) -> tuple[dict[str, list[str]],
     instrumentalist_lines: list[str] = []
 
     for role_id, names in credits.items():
-        if role_id in INSTRUMENTALIST_ROLE_IDS:
+        is_instrument = role_id in INSTRUMENTALIST_ROLE_IDS
+        
+        # Πιάνουμε δυναμικά Tidal 'other:' roles που είναι όργανα (π.χ. other:acoustic_guitar, other:violin)
+        if role_id.startswith("other:"):
+            role_lower = role_id.lower()
+            if any(i in role_lower for i in (
+                "violin", "cello", "viola", "string", "trumpet", 
+                "sax", "horn", "flute", "brass", "woodwind", 
+                "synth", "piano", "organ", "instrument", "percussion"
+            )):
+                is_instrument = True
+
+        if is_instrument:
             definition = ROLE_DEFINITIONS.get(role_id)
-            instrument_label = _clean_text(
-                (definition or {}).get("display_label") or role_id.title()
-            )
+            instrument_label = _clean_text(labels.get(role_id))
+            if not instrument_label:
+                instrument_label = _clean_text(
+                    (definition or {}).get("display_label") or role_id.title()
+                )
+            # Αποφυγή άβολων συντακτικών όπως "John Doe (Performed by)"
+            if instrument_label.lower() == "performed by":
+                instrument_label = "Performer"
+                
             instrumentalist_lines.extend(f"{name} ({instrument_label})" for name in names)
             continue
 
@@ -640,10 +665,27 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
     vocalists = fixed_credits.get("Vocalist(s)", [])
     rappers = fixed_credits.get("Rapper(s)", [])
     
+
     total_performers = len(vocalists) + len(rappers)
     
     _set_dynamic_label_value(paragraphs, "Vocalist(s):", _format_performers_with_percentages(vocalists, total_performers))
     _set_dynamic_label_value(paragraphs, "Rapper(s):", _format_performers_with_percentages(rappers, total_performers))
+    
+    # Μετονομασία του template label από Guirtarist(s): σε Musician(s):
+    for p in paragraphs:
+        for old_label in INSTRUMENTALIST_ROW_LABELS:
+            if old_label in p.text:
+                _replace_first_across_runs(p, old_label, "Musician(s):", required=False)
+                break
+                
+    # Εισαγωγή των instrumentalist credits
+    if instrumentalist_lines:
+        _set_dynamic_label_value(paragraphs, "Musician(s):", "\n".join(instrumentalist_lines))
+    else:
+        _set_dynamic_label_value(paragraphs, "Musician(s):", "")
+    
+    if other_lines:
+        _set_dynamic_label_value(paragraphs, "Other Credits:", "\n".join(other_lines))
     
     if other_lines:
         _set_dynamic_label_value(paragraphs, "Other Credits:", "\n".join(other_lines))
