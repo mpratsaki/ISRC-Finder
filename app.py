@@ -48,6 +48,7 @@ from tools.page_settings import page_settings
 from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
 from tools.page_audio_id import page_audio_id
 from tools.page_catalog_batch import page_catalog_batch
+from tools.page_acrcloud_scanner import page_acrcloud_scanner
 
 st.set_page_config(
     page_title="Stay Independent Tool",
@@ -179,6 +180,7 @@ def render_sidebar(spotify_user):
     _nav_button("Label Copy", "Label Copy")
     _nav_button("Batch Catalog Label Copy", "Batch Catalog Label Copy")
     _nav_button("ISRC Finder", "ISRC Finder")
+    _nav_button("ACRCloud Scanner", "ACRCloud Scanner")
     _nav_button("Metadata Health", "Metadata Health")
     _nav_button("MusicBrainz Universal Search", "MusicBrainz Search")
     _nav_button("MusicBrainz Label Auditor", "MusicBrainz Label Auditor")
@@ -252,6 +254,8 @@ elif current_page == "Batch Catalog Label Copy":
     page_catalog_batch(token, spotify_user)
 elif current_page == "ISRC Finder":
     page_isrc_finder(token)
+elif current_page == "ACRCloud Scanner":             
+    page_acrcloud_scanner(token)
 elif current_page == "Metadata Health":
     page_metadata_health()
 elif current_page == "MusicBrainz Search":
