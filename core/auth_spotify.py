@@ -60,6 +60,7 @@ def exchange_code_for_token(client_id, client_secret, redirect_uri, code):
             "redirect_uri": redirect_uri,
         },
         auth=(client_id, client_secret),
+        timeout=15,
     )
     resp.raise_for_status()
     data = resp.json()
