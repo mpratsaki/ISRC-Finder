@@ -60,6 +60,7 @@ def exchange_code_for_token(client_id, client_secret, redirect_uri, code):
             "redirect_uri": redirect_uri,
         },
         auth=(client_id, client_secret),
+        timeout=15,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -72,6 +73,7 @@ def refresh_access_token(client_id, client_secret, refresh_token):
         "https://accounts.spotify.com/api/token",
         data={"grant_type": "refresh_token", "refresh_token": refresh_token},
         auth=(client_id, client_secret),
+        timeout=15,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -112,7 +114,7 @@ def extract_playlist_id(playlist_arg):
 def _api_get(token, url, params=None, retries=3):
     headers = {"Authorization": f"Bearer {token}"}
     for attempt in range(retries):
-        resp = requests.get(url, headers=headers, params=params)
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
         if resp.status_code == 429:
             wait = int(resp.headers.get("Retry-After", 2))
             time.sleep(wait)
