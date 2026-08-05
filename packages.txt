@@ -1,1 +1,2 @@
+libchromaprint-tools
 ffmpeg
