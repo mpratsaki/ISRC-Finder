@@ -172,28 +172,18 @@ def _fetch_artist_releases(
     "appears_on" credits, paginating through the full result set, and
     deduplicating repeat entries (regional re-releases, deluxe re-uploads,
     etc.) by a normalized Name + Type key.
-
-    Note on UPC dedup: the /artists/{id}/albums listing endpoint returns
-    SimplifiedAlbumObjects, which do not include external_ids (UPC).
-    Fetching full album details for every candidate just to dedupe on UPC
-    would mean one extra Spotify round-trip per release before the user has
-    even picked anything -- defeating the purpose of a fast catalog listing.
-    We dedupe on normalized (name + album_type) instead, keeping the edition
-    with the most tracks as the representative one; true UPC-level
-    resolution still happens per-release later, via build_label_copy_data,
-    for whichever releases the user actually selects.
     """
     notes: list[str] = []
     raw_items: list[dict[str, Any]] = []
 
-    url = f"{SPOTIFY_API_BASE}/artists/{artist_id}/albums"
-    params: Mapping[str, Any] | None = {
-        "include_groups": RELEASE_GROUPS,
-        "limit": 50,
-        "offset": 0,
-    }
+    # ΑΛΛΑΓΗ: Ενσωματώνουμε τις παραμέτρους κατευθείαν μέσα στο string του URL
+    # για να αποφύγουμε οποιοδήποτε conflict με το 3ο argument της _spotify_get_json!
+    url = f"{SPOTIFY_API_BASE}/artists/{artist_id}/albums?include_groups={RELEASE_GROUPS}&limit=50&offset=0"
+    
     while url:
-        page, note = _spotify_get_json(token, url, params)
+        # ΑΛΛΑΓΗ: Την καλούμε αυστηρά με 2 arguments (token, url)
+        page, note = _spotify_get_json(token, url)
+        
         if note and note not in notes:
             notes.append(note)
         if not page:
@@ -202,7 +192,6 @@ def _fetch_artist_releases(
             if isinstance(item, Mapping):
                 raw_items.append(dict(item))
         url = _clean_text(page.get("next"))
-        params = None
 
     # Defensive filter: include_groups already excludes "appears_on", but we
     # never want a compilation credit slipping into the artist's own batch.
