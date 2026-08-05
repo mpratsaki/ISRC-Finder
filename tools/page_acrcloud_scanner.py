@@ -45,14 +45,21 @@ def page_acrcloud_scanner(token=None):
     st.title("🎵 ACRCloud Auto Scanner")
     st.write("Ανέβασε ένα DJ Mix ή μεγάλο αρχείο ήχου και άσε το εργαλείο να βρει όλα τα κομμάτια, ISRCs και UPCs.")
 
-    with st.expander("⚙️ API Credentials", expanded=True):
+    # --- ΑΥΤΟΜΑΤΗ ΑΝΑΓΝΩΣΗ ΑΠΟ ΤΑ STREAMLIT SECRETS ---
+    # Χρησιμοποιούμε το .get() για να μην κρασάρει αν κάποιο κλειδί λείπει ή έχει γραφτεί λάθος
+    default_host = st.secrets.get("ACRCLOUD_HOST", "identify-eu-west-1.acrcloud.com")
+    default_key = st.secrets.get("ACRCLOUD_KEY", "")
+    default_secret = st.secrets.get("ACRCLOUD_SECRET", "")
+
+    # Το κάναμε expanded=False για να μην πιάνει χώρο στην οθόνη, αφού τα κλειδιά μπαίνουν αυτόματα!
+    with st.expander("⚙️ API Credentials (Φορτώθηκαν αυτόματα)", expanded=False):
         col1, col2, col3 = st.columns(3)
         with col1:
-            host_input = st.text_input("Host", value="identify-eu-west-1.acrcloud.com")
+            host_input = st.text_input("Host", value=default_host)
         with col2:
-            key_input = st.text_input("Access Key", type="password")
+            key_input = st.text_input("Access Key", type="password", value=default_key)
         with col3:
-            secret_input = st.text_input("Access Secret", type="password")
+            secret_input = st.text_input("Access Secret", type="password", value=default_secret)
 
     st.markdown("---")
 
@@ -62,7 +69,7 @@ def page_acrcloud_scanner(token=None):
         if st.button("🚀 Έναρξη Σάρωσης", type="primary"):
             
             if not key_input or not secret_input:
-                st.error("⚠️ Παρακαλώ συμπλήρωσε το Access Key και το Access Secret!")
+                st.error("⚠️ Παρακαλώ συμπλήρωσε το Access Key και το Access Secret (ή έλεγξε τα Streamlit Secrets σου)!")
                 return
             
             with st.spinner("Φόρτωση ολόκληρου του κομματιού στη μνήμη..."):
