@@ -205,6 +205,54 @@ def _set_label_value(paragraph: Paragraph, label: str, value: Any) -> None:
     replacement = f" {clean_value}" if clean_value else " "
     _replace_range_across_runs(paragraph, label_end, len(full_text), replacement)
 
+def _ensure_table_row_exists(paragraphs: list[Paragraph], anchor_label: str, new_label: str) -> None:
+    """
+    Δυναμική εισαγωγή νέας γραμμής στον πίνακα (κλωνοποιώντας μια υπάρχουσα) 
+    αν απουσιάζει το new_label από το template.
+    """
+    for p in paragraphs:
+        if new_label in p.text:
+            return
+
+    for p in paragraphs:
+        if anchor_label in p.text:
+            tc = p._element.getparent()
+            while tc is not None and tc.tag != qn('w:tc'):
+                tc = tc.getparent()
+            
+            if tc is not None and tc.tag == qn('w:tc'):
+                tr = tc.getparent()
+                if tr is not None and tr.tag == qn('w:tr'):
+                    new_tr = deepcopy(tr)
+                    for attribute in (qn("w14:paraId"), qn("w14:textId")):
+                        new_tr.attrib.pop(attribute, None)
+                    
+                    tr.addnext(new_tr)
+                    
+                    new_ps = [Paragraph(node, p._parent) for node in new_tr.xpath('.//w:p')]
+                    paragraphs.extend(new_ps)
+                    
+                    for np in new_ps:
+                        if anchor_label in np.text:
+                            _replace_first_across_runs(np, anchor_label, new_label, required=False)
+                    
+                    tc_elements = list(new_tr.findall(qn('w:tc')))
+                    try:
+                        old_tc_elements = list(tr.findall(qn('w:tc')))
+                        tc_idx = old_tc_elements.index(tc)
+                        
+                        if tc_idx + 1 < len(tc_elements):
+                            next_tc = tc_elements[tc_idx + 1]
+                            next_tc_ps = list(next_tc.xpath('.//w:p'))
+                            if next_tc_ps:
+                                target_p = Paragraph(next_tc_ps[0], p._parent)
+                                target_p.clear()
+                                for extra_p_node in next_tc_ps[1:]:
+                                    next_tc.remove(extra_p_node)
+                    except ValueError:
+                        pass
+                    return
+
 def _set_dynamic_label_value(paragraphs: list[Paragraph], label: str, value: Any) -> None:
     """Smart lookup supporting proper line breaks inside DOCX table cells without losing format."""
     raw_val = str(value or "").strip()
@@ -614,11 +662,6 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
             title = _clean_text(track.get("title"))
             duration_str = format_duration_docx(_duration_ms(track))
 
-            # Capture the ORIGINAL per-segment styling before clearing.
-            # The template uses two distinct runs here - a larger bold run
-            # for "Track N: Title" and a smaller bold run for
-            # "Duration: MM:SS" - so we preserve each independently instead
-            # of stamping the title's style over both.
             runs = p.runs
             left_rPr = deepcopy(runs[0]._r.rPr) if runs and runs[0]._r.rPr is not None else None
             right_rPr = (
@@ -630,22 +673,12 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
             left_text = f"Track {display_number}: {title}"
             right_text = f"Duration: {duration_str}"
 
-            # `paragraph.clear()` removes only the run content; it preserves
-            # paragraph-level formatting (w:pPr), which is exactly where the
-            # template already defines a right-aligned tab stop positioned
-            # at the track row's inner right edge. So a single "\t" between
-            # the two segments is all that's needed to right-align the
-            # duration - no manual space padding, no risk of overflow-driven
-            # line wraps regardless of how long the title is.
             p.clear()
 
             _append_styled_run(p, left_text, left_rPr)
             _append_styled_run(p, "\t", right_rPr)
             _append_styled_run(p, right_text, right_rPr)
 
-            # Defensive fallback in case this particular paragraph has no
-            # right tab stop (e.g. a hand-edited template) - never silently
-            # fall back to unaligned/wrapping text.
             _ensure_right_tab_stop(p)
             break
             
@@ -656,6 +689,7 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
     _set_dynamic_label_value(paragraphs, "Lyrics Language:", track.get("lyrics_language") or track.get("lyrics_language_suggestion"))
     _set_dynamic_label_value(paragraphs, "Parental Advisory:", track.get("parental_advisory"))
     
+    # Λαμβάνουμε και τις τρεις λίστες χωρίς error
     fixed_credits, other_lines, instrumentalist_lines = _docx_credit_values(track)
     
     for label, names in fixed_credits.items():
@@ -665,31 +699,33 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
     vocalists = fixed_credits.get("Vocalist(s)", [])
     rappers = fixed_credits.get("Rapper(s)", [])
     
-
     total_performers = len(vocalists) + len(rappers)
     
     _set_dynamic_label_value(paragraphs, "Vocalist(s):", _format_performers_with_percentages(vocalists, total_performers))
     _set_dynamic_label_value(paragraphs, "Rapper(s):", _format_performers_with_percentages(rappers, total_performers))
     
-    # Μετονομασία του template label από Guirtarist(s): σε Musician(s):
+    # 1. Αν υπάρχει κάποιο legacy label τύπου Guitarist(s):, το μετονομάζουμε.
     for p in paragraphs:
         for old_label in INSTRUMENTALIST_ROW_LABELS:
             if old_label in p.text:
                 _replace_first_across_runs(p, old_label, "Musician(s):", required=False)
                 break
-                
-    # Εισαγωγή των instrumentalist credits
+
+    # 2. Εισαγωγή γραμμής Musician(s): αν δεν υπάρχει (αγκυρωμένη στους Rapper)
     if instrumentalist_lines:
+        _ensure_table_row_exists(paragraphs, "Rapper(s):", "Musician(s):")
         _set_dynamic_label_value(paragraphs, "Musician(s):", "\n".join(instrumentalist_lines))
     else:
         _set_dynamic_label_value(paragraphs, "Musician(s):", "")
-    
-    if other_lines:
-        _set_dynamic_label_value(paragraphs, "Other Credits:", "\n".join(other_lines))
-    
-    if other_lines:
-        _set_dynamic_label_value(paragraphs, "Other Credits:", "\n".join(other_lines))
 
+    # 3. Εισαγωγή γραμμής Other Credits: αν δεν υπάρχει 
+    if other_lines:
+        # Ψάχνει πρώτα να "κουμπώσει" κάτω από τους Musician(s), αλλιώς κάτω από τους Rapper(s)
+        _ensure_table_row_exists(paragraphs, "Musician(s):", "Other Credits:")
+        _ensure_table_row_exists(paragraphs, "Rapper(s):", "Other Credits:")
+        _set_dynamic_label_value(paragraphs, "Other Credits:", "\n".join(other_lines))
+    else:
+        _set_dynamic_label_value(paragraphs, "Other Credits:", "")
 def generate_label_copy_docx(template_bytes: bytes, data: Mapping[str, Any]) -> io.BytesIO:
     if not isinstance(template_bytes, (bytes, bytearray)) or not template_bytes:
         raise ValueError("Το Label Copy template είναι κενό ή μη έγκυρο.")
