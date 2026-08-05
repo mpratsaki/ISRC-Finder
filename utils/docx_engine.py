@@ -656,7 +656,7 @@ def _fill_track_block(block_nodes: list[Any], track: Mapping[str, Any], display_
     _set_dynamic_label_value(paragraphs, "Lyrics Language:", track.get("lyrics_language") or track.get("lyrics_language_suggestion"))
     _set_dynamic_label_value(paragraphs, "Parental Advisory:", track.get("parental_advisory"))
     
-    fixed_credits, other_lines = _docx_credit_values(track)
+    fixed_credits, other_lines, instrumentalist_lines = _docx_credit_values(track)
     
     for label, names in fixed_credits.items():
         if label not in ("Vocalist(s)", "Rapper(s)"):
