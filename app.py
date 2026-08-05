@@ -47,6 +47,7 @@ from tools.page_musicbrainz_work import page_musicbrainz_work
 from tools.page_settings import page_settings
 from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
 from tools.page_audio_id import page_audio_id
+from tools.page_catalog_batch import page_catalog_batch
 
 st.set_page_config(
     page_title="Stay Independent Tool",
@@ -176,6 +177,7 @@ def render_sidebar(spotify_user):
     st.sidebar.markdown("### Εργαλεία")
     _nav_button("Γεννήτρια Catalog", "Γεννήτρια Catalog")
     _nav_button("Label Copy", "Label Copy")
+    _nav_button("Batch Catalog Label Copy", "Batch Catalog Label Copy")
     _nav_button("ISRC Finder", "ISRC Finder")
     _nav_button("Metadata Health", "Metadata Health")
     _nav_button("MusicBrainz Universal Search", "MusicBrainz Search")
@@ -246,6 +248,8 @@ if current_page == "Γεννήτρια Catalog":
     page_catalog_generator(token, spotify_user)
 elif current_page == "Label Copy":
     page_label_copy(token, spotify_user)
+elif current_page == "Batch Catalog Label Copy":    
+    page_catalog_batch(token, spotify_user)
 elif current_page == "ISRC Finder":
     page_isrc_finder(token)
 elif current_page == "Metadata Health":
