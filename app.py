@@ -230,11 +230,8 @@ if not token:
     st.stop()
 
 # --- Logged-in: resolve user, init routing state, render shell ---
-try:
-    spotify_user = fetch_current_user(token)
-except Exception:
-    spotify_user = "Άγνωστος Χρήστης"
-st.write("✅ CHECKPOINT 2: spotify user fetched:", spotify_user)
+# --- Logged-in: resolve user, init routing state, render shell ---
+spotify_user = "TEST-BYPASS"
 
 if "current_page" not in st.session_state:
     st.session_state.current_page = "Γεννήτρια Catalog"
