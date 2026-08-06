@@ -54,7 +54,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
+st.write("🔧 DEPLOY TEST v3 — αν βλέπεις αυτό, ο νέος κώδικας τρέχει")
 # --- Ενσωμάτωση Custom CSS ---
 st.markdown("""
     <style>
