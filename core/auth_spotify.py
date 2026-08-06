@@ -116,7 +116,7 @@ def _api_get(token, url, params=None, retries=3):
     for attempt in range(retries):
         resp = requests.get(url, headers=headers, params=params, timeout=15)
         if resp.status_code == 429:
-            wait = int(resp.headers.get("Retry-After", 2))
+            wait = min(int(resp.headers.get("Retry-After", 2)), 30)  # ανώτατο όριο 30"
             time.sleep(wait)
             continue
         resp.raise_for_status()
