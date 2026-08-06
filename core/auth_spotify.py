@@ -179,5 +179,14 @@ def fetch_playlist_tracks(token, playlist_id):
 
 
 def fetch_current_user(token):
-    data = _api_get(token, "https://api.spotify.com/v1/me")
-    return data.get("display_name") or data.get("id") or "Άγνωστος Χρήστης"
+    try:
+        resp = requests.get(
+            "https://api.spotify.com/v1/me",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("display_name") or data.get("id") or "Άγνωστος Χρήστης"
+    except Exception:
+        return "Άγνωστος Χρήστης"
