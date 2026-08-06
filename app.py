@@ -222,6 +222,7 @@ elif "code" in query_params and "token_data" not in st.session_state:
     st.rerun()
 
 token = get_valid_token()
+st.write("✅ CHECKPOINT 1: token resolved")
 
 # --- Logged-out: centered landing page, no sidebar ---
 if not token:
@@ -233,17 +234,21 @@ try:
     spotify_user = fetch_current_user(token)
 except Exception:
     spotify_user = "Άγνωστος Χρήστης"
+st.write("✅ CHECKPOINT 2: spotify user fetched:", spotify_user)
 
 if "current_page" not in st.session_state:
     st.session_state.current_page = "Γεννήτρια Catalog"
 
 render_sidebar(spotify_user)
+st.write("✅ CHECKPOINT 3: sidebar rendered")
 
 # --- State-based router ---
 current_page = st.session_state.current_page
+st.write("✅ CHECKPOINT 4: about to load page:", current_page)
 
 if current_page == "Γεννήτρια Catalog":
     page_catalog_generator(token, spotify_user)
+    st.write("✅ CHECKPOINT 5: catalog generator page returned")
 elif current_page == "Label Copy":
     page_label_copy(token, spotify_user)
 elif current_page == "ISRC Finder":
