@@ -47,8 +47,6 @@ from tools.page_musicbrainz_work import page_musicbrainz_work
 from tools.page_settings import page_settings
 from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
 from tools.page_audio_id import page_audio_id
-from tools.page_settings import page_settings
-from core.auth_musicbrainz import init_mb_auth, is_mb_authenticated
 from tools.page_acrcloud_scanner import page_acrcloud_scanner
 
 st.set_page_config(
