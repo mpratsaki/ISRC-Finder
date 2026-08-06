@@ -179,17 +179,14 @@ def fetch_playlist_tracks(token, playlist_id):
 
 
 def fetch_current_user(token):
-    import streamlit as st
     try:
         resp = requests.get(
             "https://api.spotify.com/v1/me",
             headers={"Authorization": f"Bearer {token}"},
             timeout=8,
         )
-        st.write(f"🔍 DEBUG status: {resp.status_code}, body: {resp.text[:300]}")
         resp.raise_for_status()
         data = resp.json()
         return data.get("display_name") or data.get("id") or "Άγνωστος Χρήστης"
-    except Exception as e:
-        st.write(f"🔍 DEBUG exception: {type(e).__name__}: {e}")
+    except Exception:
         return "Άγνωστος Χρήστης"
